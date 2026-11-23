@@ -56,7 +56,13 @@ export async function onRequest({ request, env, params }) {
     }
   } catch (e) {
     if (e instanceof AppError) return fail(e);
-    console.error('api error', e?.message);
+    // Structured server-side diagnostics: never return internal details to the browser.
+    console.error('api error', {
+      endpoint: [].concat(params.path || []).join('/'),
+      name: e?.name || 'Error',
+      message: e?.message || 'Unknown error',
+      stack: e?.stack || '',
+    });
     return json({ ok: false, error: { code: 'server_error', message: 'Something went wrong. Please try again.' } }, 500);
   }
 }
