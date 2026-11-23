@@ -1,4 +1,5 @@
 name: Extract uploaded ZIP archives
+# Triggered after workflow installation
 
 on:
   push:
