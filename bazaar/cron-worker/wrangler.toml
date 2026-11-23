@@ -1,0 +1,11 @@
+name = "bazaar-cron"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+# 03:00 and 15:00 UTC = 9 AM and 9 PM in Bangladesh. Free plan allows this.
+[triggers]
+crons = ["0 3 * * *", "0 15 * * *"]
+
+# Secrets (set once, never commit):
+#   wrangler secret put FIREBASE_SERVICE_ACCOUNT
+#   wrangler secret put TELEGRAM_BOT_TOKEN

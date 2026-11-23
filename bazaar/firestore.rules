@@ -1,0 +1,77 @@
+rules_version = '2';
+// Orders, stock, coupon counters and roles are written ONLY by the Worker (service account bypasses these rules).
+// Browsers can read what they should see and manage catalogue/settings if their role allows.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function hasProfile() { return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function isSuper() { return hasProfile() && profile().role == 'super'; }
+    function isOwner(shopId) { return hasProfile() && (profile().role == 'super' || (profile().role == 'owner' && profile().shopId == shopId)); }
+    function isStaff(shopId) { return isOwner(shopId) || (hasProfile() && profile().role == 'staff' && profile().shopId == shopId); }
+    function onlyChanges(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+
+    match /shops/{shopId} {
+      allow read: if true;
+      allow create, delete: if isSuper();
+      allow update: if isSuper()
+        || (isOwner(shopId) && onlyChanges(['name', 'brand', 'contact', 'delivery', 'pay', 'about', 'announcement', 'currency', 'notify']));
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isSuper()
+        || (hasProfile() && profile().role == 'owner' && resource.data.shopId == profile().shopId));
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.role == 'customer' && request.resource.data.shopId == ''
+        && request.resource.data.keys().hasOnly(['email', 'name', 'phone', 'address', 'district', 'role', 'shopId', 'createdAt']);
+      allow update: if signedIn() && request.auth.uid == uid && onlyChanges(['email', 'name', 'phone', 'address', 'district']);
+      allow delete: if isSuper();
+    }
+
+    match /products/{id} {
+      allow read: if resource.data.active == true || isStaff(resource.data.shopId);
+      allow create: if isStaff(request.resource.data.shopId)
+        && request.resource.data.keys().hasAll(['shopId', 'name', 'price', 'active'])
+        && request.resource.data.name is string && request.resource.data.name.size() <= 140
+        && request.resource.data.price is number && request.resource.data.price >= 0
+        && (!('images' in request.resource.data) || request.resource.data.images.size() <= 5);
+      allow update: if isStaff(resource.data.shopId) && request.resource.data.shopId == resource.data.shopId
+        && request.resource.data.price is number && request.resource.data.price >= 0
+        && (!('images' in request.resource.data) || request.resource.data.images.size() <= 5);
+      allow delete: if isStaff(resource.data.shopId);
+    }
+
+    match /categories/{id} {
+      allow read: if true;
+      allow create: if isStaff(request.resource.data.shopId);
+      allow update: if isStaff(resource.data.shopId) && request.resource.data.shopId == resource.data.shopId;
+      allow delete: if isStaff(resource.data.shopId);
+    }
+
+    match /coupons/{id} {
+      allow read, delete: if isOwner(resource.data.shopId);
+      allow create: if isOwner(request.resource.data.shopId) && request.resource.data.used == 0;
+      allow update: if isOwner(resource.data.shopId) && request.resource.data.shopId == resource.data.shopId
+        && request.resource.data.used == resource.data.used;
+    }
+
+    match /orders/{id} {
+      allow read: if signedIn() && (resource.data.uid == request.auth.uid || isStaff(resource.data.shopId));
+      allow write: if false;
+    }
+
+    match /customers/{id} {
+      allow read: if isStaff(resource.data.shopId);
+      allow write: if false;
+    }
+
+    match /invites/{code} {
+      allow read, delete: if isOwner(resource.data.shopId);
+      allow create: if isOwner(request.resource.data.shopId) && request.resource.data.used == false
+        && request.resource.data.role in ['owner', 'staff']
+        && (request.resource.data.role == 'staff' || isSuper());
+      allow update: if false;
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "bazaar",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Secure, free-to-host e-commerce for Bangladesh: single shop or many shops. Cloudflare Pages + Firebase.",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "serve": "node tests/serve.mjs",
+    "e2e": "node tests/e2e-shop.cjs http://localhost:8788 /tmp && node tests/e2e-admin.cjs http://localhost:8788 /tmp && node tests/e2e-multi.cjs http://localhost:8788 /tmp"
+  },
+  "engines": { "node": ">=20" }
+}
