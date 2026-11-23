@@ -9,7 +9,17 @@ export async function authenticate(request, env, store) {
   const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(env.FIREBASE_API_KEY)}`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ idToken }),
   });
-  if (!res.ok) throw new AppError('bad_token', 'Your session expired. Please sign in again.', 401);
+  if (!res.ok) {
+    // Keep the public response generic, but preserve Google's diagnostic in
+    // Cloudflare Function logs so API-key and token failures can be distinguished.
+    const detail = await res.json().catch(() => ({}));
+    console.error('Firebase accounts:lookup failed', {
+      httpStatus: res.status,
+      errorStatus: detail?.error?.status || 'UNKNOWN',
+      errorMessage: detail?.error?.message || 'No error message returned',
+    });
+    throw new AppError('bad_token', 'Your session expired. Please sign in again.', 401);
+  }
   const u = (await res.json()).users?.[0];
   if (!u || u.disabled) throw new AppError('bad_token', 'Invalid session', 401);
   const profile = await store.get('users', u.localId);
