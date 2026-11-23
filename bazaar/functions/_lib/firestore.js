@@ -51,7 +51,13 @@ async function accessToken(sa) {
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: `${header}.${claim}.${b64url(sig)}` }),
   });
-  if (!res.ok) throw new Error(`token exchange failed: ${res.status}`);
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    const code = String(detail?.error || 'unknown').slice(0, 60);
+    const description = String(detail?.error_description || detail?.error?.message || 'No diagnostic returned').replace(/[\\r\\n\\t]/g, ' ').slice(0, 180);
+    console.error('Google OAuth token exchange failed', { httpStatus: res.status, error: code, description });
+    throw new Error(`token exchange failed: ${res.status} ${code}: ${description}`);
+  }
   const j = await res.json();
   cached = { token: j.access_token, exp: now + (j.expires_in || 3600) };
   return cached.token;
@@ -61,6 +67,12 @@ export class FirestoreStore {
   constructor(env) {
     if (!env.FIREBASE_SERVICE_ACCOUNT) throw new Error('FIREBASE_SERVICE_ACCOUNT secret is missing');
     this.sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
+    if (!this.sa.project_id || !this.sa.client_email || !this.sa.private_key) {
+      throw new Error('FIREBASE_SERVICE_ACCOUNT is incomplete: project_id, client_email and private_key are required');
+    }
+    if (this.sa.project_id !== 'e-comerce-e5345') {
+      throw new Error(`FIREBASE_SERVICE_ACCOUNT project_id mismatch: expected e-comerce-e5345, received ${String(this.sa.project_id).slice(0, 80)}`);
+    }
     this.base = `https://firestore.googleapis.com/v1/projects/${this.sa.project_id}/databases/(default)/documents`;
     this.dbName = `projects/${this.sa.project_id}/databases/(default)/documents`;
   }
