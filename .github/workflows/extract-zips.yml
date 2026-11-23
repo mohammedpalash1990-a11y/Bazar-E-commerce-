@@ -1,0 +1,63 @@
+name: Extract uploaded ZIP archives
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/extract-zips.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract ZIP archives into repository root
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          import shutil
+
+          root = Path(".").resolve()
+          archives = [Path("bazaar.zip"), Path("config-update.zip")]
+
+          for archive in archives:
+              if not archive.is_file():
+                  raise SystemExit(f"Required archive not found: {archive}")
+
+          for archive in archives:
+              print(f"Extracting {archive}...")
+              with ZipFile(archive) as zf:
+                  for member in zf.infolist():
+                      target = (root / member.filename).resolve()
+                      if target != root and root not in target.parents:
+                          raise SystemExit(f"Unsafe ZIP path: {member.filename}")
+                      if member.is_dir():
+                          target.mkdir(parents=True, exist_ok=True)
+                      else:
+                          target.parent.mkdir(parents=True, exist_ok=True)
+                          with zf.open(member) as src, target.open("wb") as dst:
+                              shutil.copyfileobj(src, dst)
+
+          print("Both archives extracted.")
+          PY
+
+      - name: Commit extracted files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No extracted file changes to commit."
+          else
+            git commit -m "Extract uploaded ZIP archives into repository root"
+            git push
+          fi
