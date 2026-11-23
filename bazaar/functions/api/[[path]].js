@@ -63,6 +63,11 @@ export async function onRequest({ request, env, params }) {
       message: e?.message || 'Unknown error',
       stack: e?.stack || '',
     });
-    return json({ ok: false, error: { code: 'server_error', message: 'Something went wrong. Please try again.' } }, 500);
+    // During first-time bootstrap, return a bounded diagnostic so the admin can see
+    // whether Firebase token exchange or Firestore setup failed. Never expose stack traces.
+    const diagnostic = [].concat(params.path || []).join('/') === 'bootstrap'
+      ? String(e?.message || 'Unknown server error').replace(/(?:AIza[0-9A-Za-z_-]{20,}|-----BEGIN PRIVATE KEY-----[\s\S]*?-----END PRIVATE KEY-----)/g, '[redacted]').slice(0, 240)
+      : 'Something went wrong. Please try again.';
+    return json({ ok: false, error: { code: 'server_error', message: diagnostic } }, 500);
   }
 }
