@@ -18,7 +18,7 @@ const SHOP = {
   'Most popular': 'সবচেয়ে জনপ্রিয়', 'My account': 'আমার অ্যাকাউন্ট', 'My details': 'আমার তথ্য', 'My orders': 'আমার অর্ডার', 'New arrivals': 'নতুন পণ্য', Newest: 'নতুন আগে',
   'No orders yet.': 'এখনো কোনো অর্ডার নেই।', 'No products yet. Add some from the admin panel.': 'এখনো কোনো পণ্য নেই। অ্যাডমিন প্যানেল থেকে যোগ করুন।', 'No shops yet.': 'এখনো কোনো দোকান নেই।',
   'Note for the shop (optional)': 'দোকানের জন্য নোট (ঐচ্ছিক)', 'Nothing matches your filters.': 'ফিল্টারের সাথে কিছু মিলছে না।', 'On sale': 'ছাড়ে পাচ্ছেন',
-  'Only {n} in stock': 'স্টকে মাত্র {n}টি আছে', 'Only {n} left': 'মাত্র {n}টি বাকি', 'Open admin': 'অ্যাডমিন খুলুন', 'Order cancelled': 'অর্ডার বাতিল হয়েছে',
+  'Order status updated': 'অর্ডারের অবস্থা বদলেছে', 'Only {n} in stock': 'স্টকে মাত্র {n}টি আছে', 'Only {n} left': 'মাত্র {n}টি বাকি', 'Open admin': 'অ্যাডমিন খুলুন', 'Order cancelled': 'অর্ডার বাতিল হয়েছে',
   'Order in a minute, pay when it arrives.': 'এক মিনিটে অর্ডার করুন, পণ্য হাতে পেয়ে টাকা দিন।', 'Order number': 'অর্ডার নম্বর', 'Order placed': 'অর্ডার সম্পন্ন', 'Order summary': 'অর্ডারের সারসংক্ষেপ',
   'Outside {d}': '{d} এর বাইরে', Password: 'পাসওয়ার্ড', 'Password reset email sent': 'পাসওয়ার্ড রিসেটের ইমেইল পাঠানো হয়েছে', 'Pay cash when your order arrives': 'অর্ডার হাতে পেয়ে ক্যাশ দিন',
   'Pay when your order arrives': 'পণ্য হাতে পেয়ে টাকা দিন', Payment: 'পেমেন্ট', 'Photo {n}': 'ছবি {n}', 'Pick a shop to start browsing.': 'একটি দোকান বেছে নিন।', 'Place order': 'অর্ডার করুন',

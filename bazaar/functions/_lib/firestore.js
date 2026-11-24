@@ -70,8 +70,11 @@ export class FirestoreStore {
     if (!this.sa.project_id || !this.sa.client_email || !this.sa.private_key) {
       throw new Error('FIREBASE_SERVICE_ACCOUNT is incomplete: project_id, client_email and private_key are required');
     }
-    if (this.sa.project_id !== 'e-comerce-e5345') {
-      throw new Error(`FIREBASE_SERVICE_ACCOUNT project_id mismatch: expected e-comerce-e5345, received ${String(this.sa.project_id).slice(0, 80)}`);
+    // Guard against a service account from the wrong project. The expected id defaults to this
+    // shop's project; a deployment (or a test fixture) may pin another one with FIREBASE_PROJECT_ID.
+    const expected = env.FIREBASE_PROJECT_ID || 'e-comerce-e5345';
+    if (this.sa.project_id !== expected) {
+      throw new Error(`FIREBASE_SERVICE_ACCOUNT project_id mismatch: expected ${expected}, received ${String(this.sa.project_id).slice(0, 80)}`);
     }
     this.base = `https://firestore.googleapis.com/v1/projects/${this.sa.project_id}/databases/(default)/documents`;
     this.dbName = `projects/${this.sa.project_id}/databases/(default)/documents`;

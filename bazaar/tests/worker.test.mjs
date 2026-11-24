@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { toFields, fromFields } from '../functions/_lib/firestore.js';
 import { onRequest } from '../functions/api/[[path]].js';
 
-const env = { FIREBASE_SERVICE_ACCOUNT: JSON.stringify({ project_id: 'p', client_email: 'x@p.iam', private_key: 'k' }), FIREBASE_API_KEY: 'k' };
+const env = { FIREBASE_SERVICE_ACCOUNT: JSON.stringify({ project_id: 'p', client_email: 'x@p.iam', private_key: 'k' }), FIREBASE_PROJECT_ID: 'p', FIREBASE_API_KEY: 'k' };
 const call = (path, { method = 'POST', headers = {}, body = '{}' } = {}) =>
   onRequest({ request: new Request(`https://shop.example/api/${path}`, { method, headers: { 'content-type': 'application/json', ...headers }, body: method === 'GET' ? undefined : body }), env, params: { path: path.split('/') } });
 

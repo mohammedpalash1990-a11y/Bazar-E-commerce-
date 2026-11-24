@@ -9,7 +9,7 @@ import { defaultShop } from '../public/shared/handlers.js';
 
 const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const SA = { project_id: 'demo', client_email: 'svc@demo.iam.gserviceaccount.com', private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }) };
-const env = { FIREBASE_SERVICE_ACCOUNT: JSON.stringify(SA), FIREBASE_API_KEY: 'k', BOOTSTRAP_TOKEN: 'boot' };
+const env = { FIREBASE_SERVICE_ACCOUNT: JSON.stringify(SA), FIREBASE_PROJECT_ID: 'demo', FIREBASE_API_KEY: 'k', BOOTSTRAP_TOKEN: 'boot' };
 const NOW = Date.now();
 
 const db = {

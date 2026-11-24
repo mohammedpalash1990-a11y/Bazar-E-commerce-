@@ -400,10 +400,48 @@ async function runTrack(form) {
   const fd = Object.fromEntries(new FormData(form));
   const out = $('#t-out'), err = $('#t-err');
   err.hidden = true;
+  stopTrackPoll();
   try {
     const o = await S.be.api('trackOrder', { no: fd.no, phone: fd.phone, turnstile: tsToken });
     out.innerHTML = orderCard(o);
+    startTrackPoll({ no: fd.no, phone: fd.phone }, o);
   } catch (e) { out.innerHTML = ''; err.textContent = errText(e); err.hidden = false; }
+}
+
+/* Live tracking for guests: they cannot read Firestore directly (rules keep orders private), so the page
+   re-asks the Worker every few seconds while it is visible, and immediately when the tab wakes or the
+   connection returns. Skipped when a bot check is configured, because its token is single-use. */
+const TRACK_DONE = new Set(['delivered', 'cancelled', 'returned']);
+let trackPoll = null;
+const orderSig = (o) => `${o.status}|${(o.history || []).length}|${o.due}|${o.courier?.trackingId || ''}`;
+function stopTrackPoll() {
+  if (!trackPoll) return;
+  clearInterval(trackPoll.timer);
+  document.removeEventListener('visibilitychange', trackPoll.wake);
+  window.removeEventListener('online', trackPoll.wake);
+  trackPoll = null;
+}
+function startTrackPoll(args, first) {
+  if (CONFIG.turnstileSiteKey || TRACK_DONE.has(first.status)) return;
+  const st = { sig: orderSig(first), busy: false };
+  const tick = async () => {
+    if (trackPoll !== st || st.busy || document.hidden || navigator.onLine === false) return;
+    const out = $('#t-out');
+    if (!out || !location.hash.startsWith('#/track')) { stopTrackPoll(); return; }
+    st.busy = true;
+    try {
+      const o = await S.be.api('trackOrder', { ...args, turnstile: '' });
+      if (trackPoll !== st) return;
+      const sig = orderSig(o);
+      if (sig !== st.sig) { st.sig = sig; out.innerHTML = orderCard(o); if (!TRACK_DONE.has(o.status)) toast(t('Order status updated')); }
+      if (TRACK_DONE.has(o.status)) stopTrackPoll();
+    } catch { /* offline or busy: keep the last shown status and try again */ } finally { st.busy = false; }
+  };
+  st.wake = () => { if (!document.hidden) tick(); };
+  st.timer = setInterval(tick, 8000);
+  document.addEventListener('visibilitychange', st.wake);
+  window.addEventListener('online', st.wake);
+  trackPoll = st;
 }
 
 /* ---- account */
@@ -562,7 +600,7 @@ document.addEventListener('submit', async (e) => {
     try { await S.be.db.update('users', S.user.uid, { name: fd.name.slice(0, 80), phone: normalizePhone(fd.phone), address: fd.address.slice(0, 300), district: fd.district.slice(0, 60) }); await S.be.auth.refresh(); toast(t('Saved')); } catch (er) { toast(er.message, 'err'); }
   }
 });
-window.addEventListener('hashchange', () => { document.body.classList.remove('cart-open'); route(); });
+window.addEventListener('hashchange', () => { document.body.classList.remove('cart-open'); if (!location.hash.startsWith('#/track')) stopTrackPoll(); route(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.body.classList.remove('cart-open'); });
 
 /* ---------------------------------------------------------------- boot */
