@@ -66,6 +66,18 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Written only by the Worker. Anyone can read approved reviews; the shop's staff can read all of them.
+    match /reviews/{id} {
+      allow read: if resource.data.status == 'approved' || isStaff(resource.data.shopId);
+      allow write: if false;
+    }
+
+    // Newsletter addresses: only the shop's staff can read them; the Worker is the only writer.
+    match /subscribers/{id} {
+      allow read: if isStaff(resource.data.shopId);
+      allow write: if false;
+    }
+
     match /invites/{code} {
       allow read, delete: if isOwner(resource.data.shopId);
       allow create: if isOwner(request.resource.data.shopId) && request.resource.data.used == false

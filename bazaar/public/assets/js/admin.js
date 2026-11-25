@@ -7,7 +7,7 @@ import { isShopOpen } from '../../shared/core.js';
 import { A, on, watchOrders, isOwner, isSuper, guard } from './admin-core.js';
 import { renderDashboard, renderOrders } from './admin-orders.js';
 import { renderProducts, renderCategories } from './admin-products.js';
-import { renderCustomers, renderCoupons, renderReports, renderSettings, renderShops } from './admin-misc.js';
+import { renderCustomers, renderCoupons, renderReports, renderSettings, renderShops, renderReviews, renderSubscribers } from './admin-misc.js';
 
 const PAGES = {
   dashboard: { title: 'Overview', icon: 'home', fn: renderDashboard, roles: ['staff', 'owner', 'super'] },
@@ -15,6 +15,8 @@ const PAGES = {
   products: { title: 'Products', icon: 'box', fn: renderProducts, roles: ['staff', 'owner', 'super'] },
   categories: { title: 'Categories', icon: 'tag', fn: renderCategories, roles: ['staff', 'owner', 'super'] },
   customers: { title: 'Customers', icon: 'users', fn: renderCustomers, roles: ['staff', 'owner', 'super'] },
+  reviews: { title: 'Reviews', icon: 'heart', fn: renderReviews, roles: ['owner', 'super'] },
+  subscribers: { title: 'Newsletter', icon: 'bell', fn: renderSubscribers, roles: ['owner', 'super'] },
   coupons: { title: 'Coupons', icon: 'tag', fn: renderCoupons, roles: ['owner', 'super'] },
   reports: { title: 'Reports', icon: 'chart', fn: renderReports, roles: ['owner', 'super'] },
   settings: { title: 'Settings', icon: 'gear', fn: renderSettings, roles: ['owner', 'super'] },

@@ -67,6 +67,23 @@ export function imageToDataUrl(file, max = 900, quality = 0.8) {
   });
 }
 
+// A small WebP copy of a picture (already a data URL) used on product cards, so the shop home page stays light.
+export function makeThumb(dataUrl, max = 420, quality = 0.72) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      const out = c.toDataURL('image/webp', quality);
+      resolve(out.startsWith('data:image/webp') ? out : c.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => resolve('');
+    img.src = dataUrl;
+  });
+}
+
 export function uid(len = 12) {
   const a = 'abcdefghijklmnopqrstuvwxyz0123456789';
   return Array.from(crypto.getRandomValues(new Uint8Array(len)), (x) => a[x % a.length]).join('');

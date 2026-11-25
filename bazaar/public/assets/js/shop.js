@@ -17,7 +17,8 @@ const app = () => $('#app');
 const sym = () => S.shop?.currency || '৳';
 const money = (n) => fmtMoney(n, sym(), getLang());
 const shopName = () => S.shop?.name || CONFIG.platformName;
-const img = (src, alt = '') => `<img src="${esc(safeUrl(src))}" alt="${esc(alt)}" loading="lazy" decoding="async">`;
+const img = (src, alt = '', o = {}) => `<img src="${esc(safeUrl(src))}" alt="${esc(alt)}" ${o.eager ? 'fetchpriority="high"' : 'loading="lazy"'} decoding="async">`;
+const thumbOf = (p) => p.thumb || p.images?.[0] || '';
 const pName = (p) => pick(p, 'name');
 const stockOf = (p) => (p.trackStock === false ? Infinity : Array.isArray(p.variants) && p.variants.length ? p.variants.reduce((s, v) => s + Math.max(0, Number(v.stock) || 0), 0) : Math.max(0, Number(p.stock) || 0));
 
@@ -29,30 +30,70 @@ function shopIdFromUrl() {
   return CONFIG.mode === 'single' ? CONFIG.defaultShop : null;
 }
 
-async function cached(key, loader, ttl = 300000) {
-  if (S.be.mode === 'demo') return loader();
-  const hit = ls.get(key, null);
-  if (hit && Date.now() - hit.at < ttl) return hit.v;
-  const v = await loader();
-  ls.set(key, { at: Date.now(), v });
-  return v;
+/* A slim copy of the catalogue is kept on this device so repeat visits paint instantly,
+   then the live data is fetched in the background and swapped in only if something changed. */
+const SNAP = 'bz_snap2_';
+let snapRaw = '';
+const slim = (p) => { const first = p.thumb || p.images?.[0]; return { ...p, images: first ? [first] : [], _slim: true }; };
+function readSnap(shopId) {
+  try {
+    const raw = localStorage.getItem(SNAP + shopId);
+    const d = raw && JSON.parse(raw);
+    if (!d || !d.shop || !Array.isArray(d.cats) || !Array.isArray(d.prods)) return null;
+    snapRaw = raw;
+    return d;
+  } catch { return null; }
 }
-
-async function loadShopData(shopId) {
+function saveSnap({ shop, cats, prods }) {
+  const raw = JSON.stringify({ shop, cats, prods: prods.map(slim) });
+  const changed = raw !== snapRaw;
+  snapRaw = raw;
+  try { localStorage.setItem(SNAP + shop.id, raw); } catch { /* storage full or blocked: next visit just loads normally */ }
+  return changed;
+}
+async function fetchData(shopId) {
   const db = S.be.db;
-  S.shop = await db.get('shops', shopId);
-  if (!S.shop) return;
-  const [cats, prods] = await Promise.all([
-    cached(`bz_cats_${shopId}`, () => db.list('categories', { where: [['shopId', '==', shopId]] })),
-    cached(`bz_prods_${shopId}`, () => db.list('products', { where: [['shopId', '==', shopId], ['active', '==', true]], limit: 500 })),
+  const [shop, cats, prods] = await Promise.all([
+    db.get('shops', shopId),
+    db.list('categories', { where: [['shopId', '==', shopId]] }),
+    db.list('products', { where: [['shopId', '==', shopId], ['active', '==', true]], limit: 500 }),
   ]);
-  S.cats = cats.sort((a, b) => (a.order || 0) - (b.order || 0));
+  return { shop, cats, prods };
+}
+function applyData(shop, cats, prods) {
+  S.shop = shop;
+  S.cats = [...cats].sort((a, b) => (a.order || 0) - (b.order || 0));
   S.products = new Map(prods.map((p) => [p.id, p]));
-  S.cart = ls.get(`bz_cart_${shopId}`, []).filter((l) => S.products.has(l.productId));
-  S.wish = new Set(ls.get(`bz_wish_${shopId}`, []));
-  const b = S.shop.brand || {};
+  S.cart = ls.get(`bz_cart_${shop.id}`, []).filter((l) => S.products.has(l.productId));
+  S.wish = new Set(ls.get(`bz_wish_${shop.id}`, []));
+  const b = shop.brand || {};
   if (/^#[0-9a-f]{6}$/i.test(b.primary || '')) document.documentElement.style.setProperty('--primary', b.primary);
   if (/^#[0-9a-f]{6}$/i.test(b.accent || '')) document.documentElement.style.setProperty('--accent', b.accent);
+}
+// Cached products carry one small picture; the full set is fetched when a product page is opened.
+async function ensureFull(id) {
+  const p = S.products.get(id);
+  if (!p || !p._slim || !S.be) return;
+  try {
+    const full = await S.be.db.get('products', id);
+    if (!full || full.active === false) { S.products.delete(id); } else { S.products.set(id, full); }
+    if (location.hash.startsWith(`#/p/${id}`)) rerender();
+  } catch { /* keep the small picture */ }
+}
+async function refreshData() {
+  if (!S.shop || !S.be || S.be.mode === 'demo') return;
+  try {
+    const d = await fetchData(S.shop.id);
+    if (!d.shop) return;
+    const changed = saveSnap(d);
+    applyData(d.shop, d.cats, d.prods);
+    if (changed) softRender();
+  } catch { /* offline: keep what is on screen */ }
+}
+function softRender() {
+  renderCatbar(); renderDrawer(); updateBadges();
+  const seg = (location.hash.replace(/^#\/?/, '').split('?')[0].split('/')[0]) || '';
+  if (['', 'shop', 'p', 'wishlist'].includes(seg)) rerender();
 }
 
 const saveCart = () => ls.set(`bz_cart_${S.shop.id}`, S.cart);
@@ -60,47 +101,76 @@ const saveWish = () => ls.set(`bz_wish_${S.shop.id}`, [...S.wish]);
 const cartCount = () => S.cart.reduce((s, l) => s + l.qty, 0);
 
 /* ---------------------------------------------------------------- shell */
+function topNotes() {
+  const sh = S.shop, d = sh?.delivery || {}, n = [];
+  if (!sh) return n;
+  if (sh.announcement) n.push(['tag', sh.announcement]);
+  if (Number(d.freeAbove) > 0 && !sh.announcement) n.push(['truck', t('Free delivery above {n}', { n: money(d.freeAbove) })]);
+  n.push(['shield', t('Cash on delivery')]);
+  if (n.length < 3) n.push(['check', t('Delivery across Bangladesh')]);
+  return n.slice(0, 3);
+}
+const isDeal = (p) => productUnitPrice(p, null) < Number(p.price);
+
 function shell() {
   const sh = S.shop;
   const logo = sh?.brand?.logo ? `<img src="${esc(safeUrl(sh.brand.logo))}" alt="${esc(shopName())}">` : `<span>${esc(shopName())}</span>`;
-  const home = CONFIG.mode === 'multi' && !sh ? '#/' : '#/';
   const multiBack = CONFIG.mode === 'multi' && sh ? `<a class="chip" href="/" style="font-size:13px;padding:5px 12px">${esc(t('All shops'))}</a>` : '';
+  const c = sh?.contact || {};
+  const topCats = S.cats.slice(0, 4);
   document.body.innerHTML = `
-    ${S.be.mode === 'demo' ? `<div class="demo-bar">${esc(t('Demo mode: data stays in this browser.'))} <button data-act="reset-demo">${esc(t('Reset demo'))}</button> · <a href="/admin/" style="text-decoration:underline">${esc(t('Open admin'))}</a></div>` : ''}
-    ${sh?.announcement ? `<div class="announce">${esc(sh.announcement)}</div>` : ''}
-    <header class="hdr"><div class="wrap">
-      <a class="logo" href="${home}" aria-label="${esc(shopName())}">${logo}</a>
-      <form class="search" role="search" data-form="search">
-        ${ic('search')}<input type="search" name="q" placeholder="${esc(t('Search products'))}" aria-label="${esc(t('Search products'))}" autocomplete="off">
-      </form>
-      <nav class="icons" aria-label="${esc(t('Main'))}">
-        ${multiBack}
+    ${S.be?.mode === 'demo' ? `<div class="demo-bar">${esc(t('Demo mode: data stays in this browser.'))} <button data-act="reset-demo">${esc(t('Reset demo'))}</button> · <a href="/admin/" style="text-decoration:underline">${esc(t('Open admin'))}</a></div>` : ''}
+    ${topNotes().length ? `<div class="announce"><div class="wrap">${topNotes().map(([i, x]) => `<span>${ic(i)}${esc(x)}</span>`).join('')}</div></div>` : ''}
+    <header class="hdr">
+      <div class="wrap top">
+        <a class="logo" href="#/" aria-label="${esc(shopName())}">${logo}</a>
+        <form class="search" role="search" data-form="search">
+          <input type="search" name="q" placeholder="${esc(t('Search products'))}" aria-label="${esc(t('Search products'))}" autocomplete="off"><button type="submit" aria-label="${esc(t('Search products'))}">${ic('search')}</button>
+        </form>
+        <nav class="acts" aria-label="${esc(t('Main'))}">
+          ${multiBack}
+          <a class="act" href="#/account">${ic('user')}<span class="t">${esc(t('Account'))}</span></a>
+          ${sh ? `<a class="act" href="#/wishlist">${ic('heart')}<span class="t">${esc(t('Wishlist'))}</span><span class="n" id="wn" ${S.wish.size ? '' : 'hidden'}>${S.wish.size}</span></a>` : ''}
+          ${sh ? `<button class="act" data-act="cart">${ic('bag')}<span class="t">${esc(t('Cart'))}</span><span class="n" id="cn" ${cartCount() ? '' : 'hidden'}>${cartCount()}</span></button>` : ''}
+        </nav>
+      </div>
+    </header>
+    <div class="navrow"><div class="wrap">
+        ${sh ? `<button class="allcats" data-act="catmenu" aria-expanded="false" aria-controls="catmenu" id="allcats">${ic('menu')}<span class="t">${esc(t('All categories'))}</span></button><div class="catmenu" id="catmenu"></div>` : ''}
+        <nav class="navlinks" id="navlinks" aria-label="${esc(t('Main'))}"></nav>
         <button class="ib lang" data-act="lang" aria-label="Language">${getLang() === 'bn' ? 'EN' : 'বাং'}</button>
-        ${sh ? `<a class="ib" href="#/wishlist" aria-label="${esc(t('Wishlist'))}">${ic('heart')}<span class="n" id="wn" ${S.wish.size ? '' : 'hidden'}>${S.wish.size}</span></a>` : ''}
-        <a class="ib" href="#/account" aria-label="${esc(t('Account'))}">${ic('user')}</a>
-        ${sh ? `<button class="ib" data-act="cart" aria-label="${esc(t('Cart'))}">${ic('bag')}<span class="n" id="cn" ${cartCount() ? '' : 'hidden'}>${cartCount()}</span></button>` : ''}
-      </nav>
-    </div>
-    <div class="catbar" id="catbar"></div></header>
+      </div></div>
     <main class="wrap" id="app"></main>
     <footer class="site"><div class="wrap">
-      <div><h4>${esc(shopName())}</h4><p>${esc(sh?.about || '')}</p></div>
-      <div><h4>${esc(t('Help'))}</h4><a href="#/track">${esc(t('Track order'))}</a><a href="#/about">${esc(t('About & contact'))}</a><a href="#/account">${esc(t('My account'))}</a></div>
-      <div><h4>${esc(t('Contact'))}</h4>${sh?.contact?.phone ? `<a href="tel:${esc(sh.contact.phone)}">${esc(sh.contact.phone)}</a>` : ''}${sh?.contact?.email ? `<a href="mailto:${esc(sh.contact.email)}">${esc(sh.contact.email)}</a>` : ''}<span>${esc(sh?.contact?.address || '')}</span></div>
+      <div><div class="flogo">${logo}</div><p>${esc(sh?.about || '')}</p></div>
+      <div><h4>${esc(t('Shop'))}</h4><a href="#/shop">${esc(t('All products'))}</a><a href="#/shop?sale=1">${esc(t('Deals'))}</a><a href="#/shop?sort=new">${esc(t('New arrivals'))}</a>${topCats.map((x) => `<a href="#/shop?cat=${esc(x.slug)}">${esc(pick(x, 'name'))}</a>`).join('')}</div>
+      <div><h4>${esc(t('Customer service'))}</h4><a href="#/track">${esc(t('Track order'))}</a><a href="#/about">${esc(t('About & contact'))}</a><a href="#/account">${esc(t('My account'))}</a><a href="#/wishlist">${esc(t('Wishlist'))}</a></div>
+      <div><h4>${esc(t('Contact'))}</h4>${c.phone ? `<a href="tel:${esc(c.phone)}">${esc(c.phone)}</a>` : ''}${c.email ? `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>` : ''}${c.whatsapp ? `<a href="https://wa.me/${esc(String(c.whatsapp).replace(/\D/g, ''))}" target="_blank" rel="noopener">${esc(t('WhatsApp'))}</a>` : ''}<span>${esc(c.address || '')}</span></div>
       <div class="copy">© ${new Date().getFullYear()} ${esc(shopName())}</div>
     </div></footer>
-    ${sh?.contact?.whatsapp ? `<a class="wa" href="https://wa.me/${esc(String(sh.contact.whatsapp).replace(/\D/g, ''))}" target="_blank" rel="noopener" aria-label="WhatsApp">${ic('wa')}</a>` : ''}
+    ${c.whatsapp ? `<a class="wa" href="https://wa.me/${esc(String(c.whatsapp).replace(/\D/g, ''))}" target="_blank" rel="noopener" aria-label="WhatsApp">${ic('wa')}</a>` : ''}
     <div class="drawer-bg" data-act="cart-close"></div>
     <aside class="drawer" id="drawer" aria-label="${esc(t('Cart'))}"></aside>`;
   renderCatbar();
   renderDrawer();
 }
 
+// Header navigation and the "All categories" menu. Called on every route so the active link follows the page.
 function renderCatbar() {
-  const bar = $('#catbar');
-  if (!bar) return;
-  const cur = new URLSearchParams((location.hash.split('?')[1]) || '').get('cat');
-  bar.innerHTML = S.cats.length ? `<div class="wrap"><a href="#/shop" class="${!cur && location.hash.startsWith('#/shop') ? 'on' : ''}">${esc(t('All'))}</a>${S.cats.map((c) => `<a href="#/shop?cat=${esc(c.slug)}" class="${cur === c.slug ? 'on' : ''}">${esc(pick(c, 'name'))}</a>`).join('')}</div>` : '';
+  const nav = $('#navlinks');
+  if (!nav) return;
+  const hash = location.hash.replace(/^#/, '') || '/';
+  const [path, qs = ''] = hash.split('?');
+  const q = new URLSearchParams(qs);
+  const seg = path.split('/').filter(Boolean)[0] || '';
+  const on = (k) => ({ home: seg === '', shop: seg === 'shop' && !q.get('sale') && q.get('sort') !== 'new', deals: seg === 'shop' && q.get('sale') === '1', fresh: seg === 'shop' && q.get('sort') === 'new', track: seg === 'track' })[k] ? ' class="on" aria-current="page"' : '';
+  const hasDeals = [...S.products.values()].some(isDeal);
+  nav.innerHTML = `<a href="#/"${on('home')}>${esc(t('Home'))}</a><a href="#/shop"${on('shop')}>${esc(t('Shop'))}</a>${hasDeals ? `<a href="#/shop?sale=1"${on('deals')}>${esc(t('Deals'))}</a>` : ''}<a href="#/shop?sort=new"${on('fresh')}>${esc(t('New arrivals'))}</a><a href="#/track"${on('track')}>${esc(t('Track order'))}</a>`;
+  const menu = $('#catmenu'), btn = $('#allcats');
+  if (menu && btn) {
+    btn.hidden = !S.cats.length;
+    menu.innerHTML = S.cats.map((c) => { const rep = [...S.products.values()].find((p) => p.category === c.slug); return `<a href="#/shop?cat=${esc(c.slug)}"><span class="th">${rep ? img(thumbOf(rep), '') : ''}</span>${esc(pick(c, 'name'))}</a>`; }).join('');
+  }
 }
 
 function updateBadges() {
@@ -158,33 +228,114 @@ const priceHtml = (p, big = false) => {
   const unit = productUnitPrice(p, null);
   return `<div class="price ${big ? 'lg' : ''}"><span>${money(unit)}</span>${unit < Number(p.price) ? `<s>${money(p.price)}</s>` : ''}</div>`;
 };
-const card = (p) => `<article class="card"><a href="#/p/${esc(p.id)}" aria-label="${esc(pName(p))}"><div class="ph">${img(p.images?.[0], pName(p))}<div class="tags">${badgesFor(p)}</div></div>
-  <h3>${esc(pName(p))}</h3>${priceHtml(p)}</a>
-  <button class="wish ${S.wish.has(p.id) ? 'on' : ''}" data-act="wish" data-id="${esc(p.id)}" aria-label="${esc(t('Wishlist'))}" aria-pressed="${S.wish.has(p.id)}">${ic('heart')}</button></article>`;
+const starsHtml = (p) => (Number(p.ratingCount) > 0 && Number(p.ratingAvg) > 0
+  ? `<div class="stars"><i aria-hidden="true">★</i><span>${fmtNum(Math.round(p.ratingAvg * 10) / 10, getLang())} (${fmtNum(p.ratingCount, getLang())})</span></div>` : '');
+const card = (p) => `<article class="card"><a class="ph" href="#/p/${esc(p.id)}" aria-label="${esc(pName(p))}">${img(thumbOf(p), pName(p))}<span class="tags">${badgesFor(p)}</span></a>
+  <button class="wish ${S.wish.has(p.id) ? 'on' : ''}" data-act="wish" data-id="${esc(p.id)}" aria-label="${esc(t('Wishlist'))}" aria-pressed="${S.wish.has(p.id)}">${ic('heart')}</button>
+  <div class="cb"><h3><a href="#/p/${esc(p.id)}">${esc(pName(p))}</a></h3>${starsHtml(p)}
+    <div class="cf">${priceHtml(p)}<button class="qa" data-act="qadd" data-id="${esc(p.id)}" aria-label="${esc(t('Add to cart'))}" ${stockOf(p) === 0 ? 'disabled' : ''}>${ic('bag')}</button></div></div></article>`;
 
 /* ---------------------------------------------------------------- pages */
 const setTitle = (s) => { document.title = s ? `${s} · ${shopName()}` : shopName(); };
 const notFound = () => `<div class="center"><h1>404</h1><p>${esc(t('We could not find that page.'))}</p><a class="btn" href="#/">${esc(t('Back to home'))}</a></div>`;
 
-function pageHome() {
-  setTitle('');
-  const all = [...S.products.values()];
-  const feat = all.filter((p) => p.featured && stockOf(p) > 0);
-  const hero = (feat.length >= 3 ? feat : all).slice(0, 3);
-  const news = [...all].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 8);
-  const sale = all.filter((p) => productUnitPrice(p, null) < Number(p.price)).slice(0, 4);
-  return `<section class="hero"><div>
+const uniq = (arr) => { const seen = new Set(); return arr.filter((p) => (seen.has(p.id) ? false : seen.add(p.id))); };
+const starRow = (n) => `<span class="stars"><i role="img" aria-label="${n} / 5">${'★'.repeat(n)}${'☆'.repeat(5 - n)}</i></span>`;
+const reviewCard = (r, withProduct) => `<article class="rev"><div class="who"><span class="av" aria-hidden="true">${esc((r.name || '?').slice(0, 1).toUpperCase())}</span><span>${esc(r.name)}</span></div>
+  ${starRow(Math.max(1, Math.min(5, Number(r.rating) || 0)))}${r.text ? `<p>${esc(r.text)}</p>` : ''}
+  <div class="ok">✓ ${esc(t('Verified buyer'))}${withProduct && r.productName ? ` · <a href="#/p/${esc(r.productId)}">${esc(r.productName)}</a>` : ''}</div></article>`;
+const reviewsHtml = () => '<section class="sec" id="home-revs" hidden></section>';
+const newsHtml = () => `<section class="news" aria-label="${esc(t('Stay in the loop'))}"><div><h2>${esc(t('Stay in the loop'))}</h2><p>${esc(t('Get new arrivals and offers by email. We respect your privacy.'))}</p></div>
+  <form data-form="subscribe" novalidate><input type="email" name="email" maxlength="120" autocomplete="email" placeholder="${esc(t('Your email address'))}" aria-label="${esc(t('Your email address'))}" required><button class="btn" type="submit">${esc(t('Subscribe'))}</button></form>
+  <p class="msg" id="news-msg" role="status"></p></section>`;
+
+// Approved reviews are public. They load after the page is drawn so they never delay the first paint.
+const revCache = { home: null, byProduct: new Map() };
+function paintHomeReviews() {
+  const box = $('#home-revs'), list = revCache.home;
+  if (!box || !list || !list.length) return;
+  const avg = Math.round((list.reduce((s2, r) => s2 + r.rating, 0) / list.length) * 10) / 10;
+  box.innerHTML = `<div class="sec-h"><h2>${esc(t('Loved by our customers'))}</h2><span class="stars"><i aria-hidden="true">★</i> ${fmtNum(avg, getLang())} · ${esc(t(list.length === 1 ? '{n} review' : '{n} reviews', { n: fmtNum(list.length, getLang()) }))}</span></div>
+    <div class="revs">${list.slice(0, 6).map((r) => reviewCard(r, true)).join('')}</div>`;
+  box.hidden = false;
+}
+async function loadHomeReviews() {
+  if (!S.be || !S.shop) return;
+  paintHomeReviews();
+  try {
+    const rows = await S.be.db.list('reviews', { where: [['shopId', '==', S.shop.id], ['status', '==', 'approved']], limit: 60 });
+    revCache.home = rows.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    paintHomeReviews();
+  } catch { /* reviews are optional: the page works without them */ }
+}
+async function loadProductReviews(pid) {
+  if (!S.be || !S.shop) return;
+  const paint = () => {
+    const box = $('#pdp-revs'), list = revCache.byProduct.get(pid);
+    if (!box || !list || !list.length) return;
+    box.innerHTML = `<div class="sec-h"><h2>${esc(t('Customer reviews'))}</h2></div><div class="revs">${list.map((r) => reviewCard(r, false)).join('')}</div>`;
+    box.hidden = false;
+  };
+  paint();
+  try {
+    const rows = await S.be.db.list('reviews', { where: [['productId', '==', pid], ['status', '==', 'approved']], limit: 30 });
+    revCache.byProduct.set(pid, rows.filter((r) => r.shopId === S.shop.id).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)));
+    paint();
+  } catch { /* optional */ }
+}
+
+function heroHtml(all, feat, sale) {
+  const live = all.filter((p) => stockOf(p) > 0);
+  const collage = (feat.length >= 3 ? feat : live.length >= 3 ? live : all).slice(0, 3);
+  const spots = uniq([...sale.filter((p) => stockOf(p) > 0), ...feat]).slice(0, 2);
+  const n = collage.length;
+  const brand = `<div class="hs-slide" role="group" aria-roledescription="slide" aria-label="${esc(t('Slide {n}', { n: 1 }))}"><div>
       <h1>${esc(S.shop.brand?.tagline || t('Good things, carefully chosen.'))}</h1>
       <p>${esc(S.shop.about || t('Order in a minute, pay when it arrives.'))}</p>
       <div class="cta"><a class="btn gold" href="#/shop">${esc(t('Shop now'))}</a><a class="btn ghost" href="#/track">${esc(t('Track order'))}</a></div></div>
-    <div class="arches" aria-hidden="true">${hero.map((p) => `<div class="arch">${img(p.images?.[0], '')}</div>`).join('')}</div></section>
-    <div class="trust">
-      <div>${ic('truck')}${esc(t('Fast delivery'))}</div><div>${ic('shield')}${esc(t('Cash on delivery'))}</div>
-      <div>${ic('refresh')}${esc(t('Easy returns'))}</div><div>${ic('phone')}${esc(t('Real human support'))}</div></div>
-    ${S.cats.length ? `<section class="sec"><div class="sec-h"><h2>${esc(t('Shop by category'))}</h2></div><div class="chips">${S.cats.map((c) => `<a class="chip" href="#/shop?cat=${esc(c.slug)}">${esc(pick(c, 'name'))}</a>`).join('')}</div></section>` : ''}
-    ${sale.length ? `<section class="sec"><div class="sec-h"><h2>${esc(t('On sale'))}</h2></div><div class="grid">${sale.map(card).join('')}</div></section>` : ''}
-    <section class="sec"><div class="sec-h"><h2>${esc(t('New arrivals'))}</h2><a href="#/shop">${esc(t('See all'))}</a></div>
-      ${news.length ? `<div class="grid">${news.map(card).join('')}</div>` : `<div class="empty"><p>${esc(t('No products yet. Add some from the admin panel.'))}</p></div>`}</section>`;
+    ${n ? `<div class="hs-art" style="grid-template-columns:${n === 1 ? '1fr' : n === 2 ? '1fr 1fr' : '1fr 1.15fr 1fr'}" aria-hidden="true">${collage.map((p, i) => `<div class="arch">${img(thumbOf(p), '', { eager: i === 0 })}</div>`).join('')}</div>` : ''}</div>`;
+  const spot = (p, i) => {
+    const unit = productUnitPrice(p, null), deal = unit < Number(p.price);
+    return `<div class="hs-slide" role="group" aria-roledescription="slide" aria-label="${esc(t('Slide {n}', { n: i + 2 }))}">
+      ${deal ? `<div class="hs-tag"><small>${esc(t('Deal'))}</small><b>−${fmtNum(Math.round((1 - unit / p.price) * 100), getLang())}%</b></div>` : ''}
+      <div><h2>${esc(pName(p))}</h2><p>${esc(pick(p, 'description'))}</p>
+        <div class="pr"><span>${money(unit)}</span>${deal ? `<s>${money(p.price)}</s>` : ''}</div>
+        <div class="cta"><a class="btn gold" href="#/p/${esc(p.id)}">${esc(t('Shop now'))}</a></div></div>
+      <div class="hs-art one" aria-hidden="true"><div class="arch">${img(thumbOf(p), '')}</div></div></div>`;
+  };
+  const slides = [brand, ...spots.map(spot)];
+  return `<section class="hs" aria-roledescription="carousel" aria-label="${esc(shopName())}"><div class="hs-track" id="hs">${slides.join('')}</div>
+    ${slides.length > 1 ? `<div class="hs-dots">${slides.map((_, i) => `<button type="button" data-act="hero-dot" data-i="${i}" class="${i ? '' : 'on'}" aria-label="${esc(t('Slide {n}', { n: i + 1 }))}"></button>`).join('')}</div>` : ''}</section>`;
+}
+
+function pageHome() {
+  setTitle('');
+  const all = [...S.products.values()];
+  const live = (p) => stockOf(p) > 0;
+  const byNew = [...all].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const sale = all.filter(isDeal);
+  const feat = all.filter((p) => p.featured && live(p));
+  const picks = uniq([...feat, ...sale.filter(live), ...[...all].sort((a, b) => (b.sold || 0) - (a.sold || 0)).filter(live)]).slice(0, 12);
+  const d = S.shop.delivery || {}, c = S.shop.contact || {};
+  const catCircles = S.cats.length ? `<section class="sec" aria-label="${esc(t('Shop by category'))}"><div class="cats">${S.cats.map((x) => { const rep = all.find((p) => p.category === x.slug); return `<a class="cat" href="#/shop?cat=${esc(x.slug)}"><div class="c">${rep ? img(thumbOf(rep), '') : ic('store')}</div><span>${esc(pick(x, 'name'))}</span></a>`; }).join('')}<a class="cat" href="#/shop"><div class="c">${ic('list')}</div><span>${esc(t('View all'))}</span></a></div></section>` : '';
+  const rail = picks.length ? `<section class="sec"><div class="railbox"><div class="sec-h"><h2>${esc(t('Top picks for you'))}</h2><a href="${sale.length ? '#/shop?sale=1' : '#/shop'}">${esc(sale.length ? t('See all deals') : t('See all'))}</a></div>
+      <button class="rail-btn l" type="button" data-act="rail" data-dir="-1" aria-label="${esc(t('Scroll left'))}">‹</button><button class="rail-btn r" type="button" data-act="rail" data-dir="1" aria-label="${esc(t('Scroll right'))}">›</button>
+      <div class="rail" id="rail">${picks.map(card).join('')}</div></div></section>` : '';
+  const tile = (cls, href, small, title, pr, icon) => `<a class="promo ${cls}" href="${href}"><div><small>${esc(small)}</small><h3>${esc(title)}</h3><span class="go">${esc(t('Shop now'))} ›</span></div><div class="pic">${pr ? img(thumbOf(pr), '') : ic(icon)}</div></a>`;
+  const promos = all.length ? `<div class="promos">
+      ${tile('a', '#/shop?sort=new', t('Just landed in the shop'), t('New arrivals'), byNew[0], 'box')}
+      ${sale.length ? tile('b', '#/shop?sale=1', t('Lower prices on selected items'), t('Deals'), sale[0], 'tag') : tile('b', '#/shop', t('Featured picks'), t('All products'), (feat[0] || byNew[1] || byNew[0]), 'tag')}
+      ${Number(d.freeAbove) > 0 ? tile('c', '#/about', t('Across Bangladesh'), t('Free delivery above {n}', { n: money(d.freeAbove) }), null, 'truck') : tile('c', '#/about', t('Pay cash when your order arrives'), t('Cash on delivery'), null, 'truck')}</div>` : '';
+  const trust = `<div class="trust">
+      <div>${ic('truck')}<span>${esc(t('Delivery across Bangladesh'))}${Number(d.freeAbove) > 0 ? `<small>${esc(t('Free delivery above {n}', { n: money(d.freeAbove) }))}</small>` : ''}</span></div>
+      <div>${ic('shield')}<span>${esc(t('Cash on delivery'))}<small>${esc(t('Pay when your order arrives'))}</small></span></div>
+      <div>${ic('box')}<span>${esc(t('Track every order'))}<small>${esc(t('See the status any time'))}</small></span></div>
+      <div>${ic('phone')}<span>${esc(t('Real human support'))}<small>${esc(c.phone || t('Call or message us'))}</small></span></div></div>`;
+  const fresh = byNew.slice(0, 8);
+  return `${heroHtml(all, feat, sale)}${catCircles}${rail}${promos}
+    <section class="sec"><div class="sec-h"><h2>${esc(t('New arrivals'))}</h2><a href="#/shop?sort=new">${esc(t('See all'))}</a></div>
+      ${fresh.length ? `<div class="grid">${fresh.map(card).join('')}</div>` : `<div class="empty"><p>${esc(t('No products yet. Add some from the admin panel.'))}</p></div>`}</section>
+    ${reviewsHtml()}${newsHtml()}${trust}`;
 }
 
 function query() {
@@ -200,9 +351,10 @@ function setQuery(obj) {
 function pageShop() {
   const q = query();
   const cat = q.get('cat') || '', term = (q.get('q') || '').trim().toLowerCase(), sort = q.get('sort') || 'new';
-  const min = Number(q.get('min')) || 0, max = Number(q.get('max')) || 0, inStock = q.get('stock') === '1';
+  const min = Number(q.get('min')) || 0, max = Number(q.get('max')) || 0, inStock = q.get('stock') === '1', dealsOnly = q.get('sale') === '1';
   let items = [...S.products.values()].filter((p) => {
     if (cat && p.category !== cat) return false;
+    if (dealsOnly && !isDeal(p)) return false;
     if (term && !`${p.name} ${p.nameBn || ''} ${p.sku || ''}`.toLowerCase().includes(term)) return false;
     const u = productUnitPrice(p, null);
     if (min && u < min) return false;
@@ -214,8 +366,8 @@ function pageShop() {
   const total = items.length;
   items = items.slice(0, S.shown);
   const catName = S.cats.find((c) => c.slug === cat);
-  setTitle(catName ? pick(catName, 'name') : t('Shop'));
-  return `<div class="sec-h" style="margin-top:32px"><h2>${esc(catName ? pick(catName, 'name') : term ? t('Results for "{q}"', { q: term }) : t('All products'))}</h2><span class="hint">${esc(t('{n} products', { n: fmtNum(total, getLang()) }))}</span></div>
+  setTitle(catName ? pick(catName, 'name') : dealsOnly ? t('Deals') : t('Shop'));
+  return `<div class="sec-h" style="margin-top:32px"><h2>${esc(catName ? pick(catName, 'name') : dealsOnly ? t('Deals') : term ? t('Results for "{q}"', { q: term }) : t('All products'))}</h2><span class="hint">${esc(t('{n} products', { n: fmtNum(total, getLang()) }))}</span></div>
     <form class="toolbar" data-form="filters">
       <select class="input" name="sort" aria-label="${esc(t('Sort'))}"><option value="new" ${sort === 'new' ? 'selected' : ''}>${esc(t('Newest'))}</option><option value="pop" ${sort === 'pop' ? 'selected' : ''}>${esc(t('Most popular'))}</option><option value="low" ${sort === 'low' ? 'selected' : ''}>${esc(t('Price: low to high'))}</option><option value="high" ${sort === 'high' ? 'selected' : ''}>${esc(t('Price: high to low'))}</option></select>
       <input class="input" style="width:110px;min-width:0" type="number" min="0" name="min" placeholder="${esc(t('Min price'))}" value="${min || ''}" aria-label="${esc(t('Min price'))}">
@@ -252,7 +404,7 @@ function pagePdp(id) {
   return `<div class="pdp"><div class="gal"><div class="main">${img(imgs[pdp.img] || imgs[0], pName(p))}</div>
       ${imgs.length > 1 ? `<div class="thumbs">${imgs.map((s, i) => `<button class="${i === pdp.img ? 'on' : ''}" data-act="thumb" data-i="${i}" aria-label="${esc(t('Photo {n}', { n: i + 1 }))}">${img(s)}</button>`).join('')}</div>` : ''}</div>
     <div class="info"><div class="crumbs"><a href="#/">${esc(t('Home'))}</a> / ${cat ? `<a href="#/shop?cat=${esc(cat.slug)}">${esc(pick(cat, 'name'))}</a>` : `<a href="#/shop">${esc(t('Shop'))}</a>`}</div>
-      <h1>${esc(pName(p))}</h1>
+      <h1>${esc(pName(p))}</h1>${starsHtml(p)}
       <div class="price lg"><span>${money(unit)}</span>${unit < (v && Number(v.price) > 0 ? Number(v.price) : Number(p.price)) ? `<s>${money(v && Number(v.price) > 0 ? v.price : p.price)}</s>` : ''}</div>
       ${stock === 0 ? `<p class="stock-out">${esc(t('Sold out'))}</p>` : stock <= 5 && stock !== Infinity ? `<p class="stock-low">${esc(t('Only {n} left', { n: fmtNum(stock, getLang()) }))}</p>` : `<p class="hint">${esc(t('In stock'))}</p>`}
       ${opts}
@@ -263,6 +415,7 @@ function pagePdp(id) {
       <p class="prose">${esc(pick(p, 'description'))}</p>
       <div class="facts"><div>${ic('truck')}${esc(t('Delivery across Bangladesh'))}</div><div>${ic('shield')}${esc(t('Pay cash when your order arrives'))}</div></div>
     </div></div>
+    <section class="sec" id="pdp-revs" hidden></section>
     ${related.length ? `<section class="sec"><div class="sec-h"><h2>${esc(t('You may also like'))}</h2></div><div class="grid">${related.map(card).join('')}</div></section>` : ''}`;
 }
 
@@ -323,8 +476,8 @@ async function applyCoupon() {
   $('#sum').innerHTML = summaryHtml(district);
 }
 
-const ERR = { bad_name: 'Enter your full name', bad_phone: 'Enter a valid mobile number', bad_address: 'Enter your full address', out_of_stock: null, rate_limited: 'Too many attempts. Please wait a minute.' };
-function errText(e) { return e?.code && ERR[e.code] ? t(ERR[e.code]) : e?.message || t('Something went wrong. Please try again.'); }
+const ERR = { bad_email: 'Enter a valid email address', bad_rating: 'Choose between 1 and 5 stars', bad_name: 'Enter your full name', bad_phone: 'Enter a valid mobile number', bad_address: 'Enter your full address', out_of_stock: null, rate_limited: 'Too many attempts. Please wait a minute.' };
+function errText(e) { return e?.code && ERR[e.code] ? t(ERR[e.code]) : e?.message ? t(e.message) : t('Something went wrong. Please try again.'); }
 
 let tsToken = '';
 function mountTurnstile() {
@@ -355,10 +508,10 @@ async function submitCheckout(form) {
     ls.set('bz_last', { no: r.no, phone: normalizePhone(fd.phone) });
     S.cart = []; saveCart(); updateBadges(); renderDrawer();
     CO = { code: '', server: null, pay: 'cod' };
-    if (S.be.mode !== 'demo') localStorage.removeItem(`bz_prods_${S.shop.id}`);
+    refreshData();
     location.hash = `#/done/${encodeURIComponent(r.no)}`;
   } catch (e) {
-    if (['out_of_stock', 'product_gone', 'variant_gone'].includes(e.code)) { localStorage.removeItem(`bz_prods_${S.shop.id}`); sessionStorage.removeItem('bz_idem'); }
+    if (['out_of_stock', 'product_gone', 'variant_gone'].includes(e.code)) { refreshData(); sessionStorage.removeItem('bz_idem'); }
     err.textContent = errText(e); err.hidden = false;
     btn.disabled = false; btn.textContent = t('Place order');
     if (window.turnstile) { window.turnstile.reset(); tsToken = ''; }
@@ -385,7 +538,12 @@ function orderCard(o) {
     <div style="margin-top:12px">${o.items.map((l) => `<div class="sum-line"><div class="t">${img(l.image)}</div><div>${esc(pick(l, 'name'))}<div class="hint">${esc(l.variantLabel)} × ${fmtNum(l.qty, getLang())}</div></div><strong>${money(l.total)}</strong></div>`).join('')}</div>
     <div class="row tot" style="margin-top:10px"><span>${esc(t('Total'))}</span><span>${money(o.total)}</span></div>
     ${o.due > 0 && o.status !== 'cancelled' ? `<div class="row"><span>${esc(t('Due on delivery'))}</span><span>${money(o.due)}</span></div>` : ''}
-    ${o.status === 'pending' ? `<button class="btn ghost sm" style="margin-top:16px" data-act="cancel-order" data-no="${esc(o.no)}">${esc(t('Cancel order'))}</button>` : ''}</div>`;
+    ${o.status === 'pending' ? `<button class="btn ghost sm" style="margin-top:16px" data-act="cancel-order" data-no="${esc(o.no)}">${esc(t('Cancel order'))}</button>` : ''}
+    ${o.status === 'delivered' ? `<div class="rv-box"><h3>${esc(t('Rate your purchase'))}</h3>${o.items.map((l, i) => `<form class="rv" data-form="review" data-no="${esc(o.no)}" data-pid="${esc(l.productId)}" data-name="${esc(pick(l, 'name'))}" novalidate>
+      <strong>${esc(pick(l, 'name'))}</strong>
+      <div class="star-in" role="radiogroup" aria-label="${esc(t('Rate your purchase'))}">${[5, 4, 3, 2, 1].map((n) => `<input type="radio" id="rv-${i}-${n}" name="rating" value="${n}"><label for="rv-${i}-${n}" title="${n}">★</label>`).join('')}</div>
+      <textarea class="input" name="text" maxlength="600" placeholder="${esc(t('Share a few words (optional)'))}"></textarea>
+      <p class="err" hidden></p><button class="btn sm" type="submit">${esc(t('Send review'))}</button></form>`).join('')}</div>` : ''}</div>`;
 }
 function pageTrack() {
   setTitle(t('Track order'));
@@ -503,7 +661,28 @@ async function pageDirectory() {
 const closedPage = (reason) => `<div class="center"><h1>${esc(shopName())}</h1><p>${esc(reason === 'not_found' ? t('This shop does not exist.') : t('This shop is closed for now. Please check back later.'))}</p></div>`;
 
 /* ---------------------------------------------------------------- router */
+let heroTimer = null, heroIO = null, heroGo = null;
+function stopHero() { clearInterval(heroTimer); heroTimer = null; heroIO?.disconnect(); heroIO = null; heroGo = null; }
+function initHero() {
+  const tr = $('#hs');
+  if (!tr) return;
+  const slides = $$('.hs-slide', tr), dots = $$('.hs-dots button');
+  if (slides.length < 2) return;
+  let cur = 0, paused = false;
+  const mark = (i) => { cur = i; dots.forEach((d, k) => { d.classList.toggle('on', k === i); d.setAttribute('aria-current', k === i ? 'true' : 'false'); }); };
+  heroIO = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) mark(slides.indexOf(e.target)); }), { root: tr, threshold: 0.6 });
+  slides.forEach((x) => heroIO.observe(x));
+  heroGo = (i) => tr.scrollTo({ left: slides[i].offsetLeft - tr.offsetLeft, behavior: 'smooth' });
+  const box = tr.parentElement;
+  box.addEventListener('pointerenter', () => { paused = true; });
+  box.addEventListener('pointerleave', () => { paused = false; });
+  box.addEventListener('focusin', () => { paused = true; });
+  box.addEventListener('focusout', () => { paused = false; });
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) heroTimer = setInterval(() => { if (!paused && !document.hidden) heroGo((cur + 1) % slides.length); }, 6500);
+}
+
 async function route() {
+  stopHero();
   const hash = location.hash.replace(/^#/, '') || '/';
   const [path] = hash.split('?');
   const seg = path.split('/').filter(Boolean);
@@ -527,8 +706,10 @@ async function route() {
   el.innerHTML = html;
   renderCatbar();
   if (seg[0] === 'checkout') { mountTurnstile(); }
-  if (seg[0] === 'track') { mountTurnstile(); const f = $('[data-form=track]'); if ((query().get('no') || '') && query().get('phone')) runTrack(f); }
-  if (seg[0] === 'account') loadMyOrders();
+  if (seg[0] === undefined) { initHero(); loadHomeReviews(); }
+  if (seg[0] === 'p') { const pid = decodeURIComponent(seg[1] || ''); ensureFull(pid); loadProductReviews(pid); }
+  if (seg[0] === 'track') { mountTurnstile(); const f = $('[data-form=track]'); if (S.be && (query().get('no') || '') && query().get('phone')) runTrack(f); }
+  if (seg[0] === 'account' && S.be) loadMyOrders();
   if (!pdpKeep) window.scrollTo({ top: 0 });
   pdpKeep = false;
 }
@@ -537,10 +718,23 @@ const rerender = () => { pdpKeep = true; route(); };
 
 /* ---------------------------------------------------------------- events */
 document.addEventListener('click', async (e) => {
+  if (!e.target.closest('#catmenu, [data-act=catmenu]')) { document.body.classList.remove('catmenu-open'); $('#allcats')?.setAttribute('aria-expanded', 'false'); }
   const a = e.target.closest('[data-act]');
   if (!a) return;
   const act = a.dataset.act, i = Number(a.dataset.i);
+  if (!S.be && ['coupon', 'cancel-order', 'logout', 'forgot'].includes(act)) { toast(t('Please wait a moment and try again.'), 'err'); return; }
   switch (act) {
+    case 'catmenu': { const on = document.body.classList.toggle('catmenu-open'); a.setAttribute('aria-expanded', String(on)); break; }
+    case 'hero-dot': heroGo?.(i); break;
+    case 'rail': { const r = $('#rail'); if (r) r.scrollBy({ left: Number(a.dataset.dir) * Math.max(240, r.clientWidth * 0.85), behavior: 'smooth' }); break; }
+    case 'qadd': {
+      e.preventDefault();
+      const p = S.products.get(a.dataset.id);
+      if (!p) break;
+      if (p.variants?.length) { toast(t('Choose options on the product page')); location.hash = `#/p/${p.id}`; break; }
+      if (addToCart(p.id, '', 1)) toast(t('Added to cart'));
+      break;
+    }
     case 'lang': setLang(getLang() === 'bn' ? 'en' : 'bn'); shell(); rerender(); break;
     case 'cart': document.body.classList.add('cart-open'); break;
     case 'cart-close': document.body.classList.remove('cart-open'); break;
@@ -548,7 +742,16 @@ document.addEventListener('click', async (e) => {
     case 'q+': { const l = cartLines()[i]; if (l && l.qty + 1 > l.max) toast(t('Only {n} in stock', { n: fmtNum(l.max, getLang()) }), 'err'); else if (l) { S.cart[i].qty += 1; } saveCart(); updateBadges(); renderDrawer(); break; }
     case 'q-': if (S.cart[i]) { S.cart[i].qty -= 1; if (S.cart[i].qty < 1) S.cart.splice(i, 1); saveCart(); updateBadges(); renderDrawer(); if (location.hash.startsWith('#/checkout')) { CO.server = null; rerender(); } } break;
     case 'rm': S.cart.splice(i, 1); saveCart(); updateBadges(); renderDrawer(); if (location.hash.startsWith('#/checkout')) rerender(); break;
-    case 'wish': { e.preventDefault(); const id = a.dataset.id; if (S.wish.has(id)) S.wish.delete(id); else S.wish.add(id); saveWish(); updateBadges(); if (location.hash.startsWith('#/wishlist') || location.hash.startsWith('#/p/') || location.hash.startsWith('#/shop') || location.hash === '#/' || !location.hash) rerender(); break; }
+    case 'wish': {
+      e.preventDefault();
+      const id = a.dataset.id;
+      if (S.wish.has(id)) S.wish.delete(id); else S.wish.add(id);
+      saveWish(); updateBadges();
+      if (location.hash.startsWith('#/wishlist')) { rerender(); break; }
+      // Flip the heart in place so the slider and product rail keep their scroll position.
+      $$('[data-act=wish]').filter((b) => b.dataset.id === id).forEach((b) => { b.classList.toggle('on', S.wish.has(id)); b.setAttribute('aria-pressed', String(S.wish.has(id))); b.style.color = b.classList.contains('ib') && S.wish.has(id) ? 'var(--danger)' : ''; });
+      break;
+    }
     case 'opt': pdp.sel[a.dataset.name] = a.dataset.val; rerender(); break;
     case 'thumb': pdp.img = i; rerender(); break;
     case 'pq+': { const p = S.products.get(pdp.id); const v = pickVariant(p); const max = v ? availableStock(p, v) : stockOf(p); if (pdp.qty < Math.min(max, 99)) pdp.qty += 1; $('#pq').textContent = fmtNum(pdp.qty, getLang()); break; }
@@ -586,7 +789,31 @@ document.addEventListener('submit', async (e) => {
   if (!f) return;
   e.preventDefault();
   const kind = f.dataset.form;
-  if (kind === 'search') { const q = new FormData(f).get('q').toString().trim(); location.hash = `#/shop${q ? `?q=${encodeURIComponent(q)}` : ''}`; }
+  if (kind === 'search') { const q = new FormData(f).get('q').toString().trim(); location.hash = `#/shop${q ? `?q=${encodeURIComponent(q)}` : ''}`; return; }
+  if (!S.be) { toast(t('Please wait a moment and try again.'), 'err'); return; }
+  if (kind === 'subscribe') {
+    const msg = $('#news-msg'), btn = f.querySelector('button');
+    btn.disabled = true; msg.textContent = '';
+    try { await S.be.api('subscribe', { shopId: S.shop.id, email: new FormData(f).get('email') }); msg.textContent = t('Thanks! You are subscribed.'); f.reset(); }
+    catch (er) { msg.textContent = errText(er); }
+    btn.disabled = false;
+    return;
+  }
+  if (kind === 'review') {
+    const fd = new FormData(f), err = f.querySelector('.err'), btn = f.querySelector('button');
+    err.hidden = true;
+    if (!fd.get('rating')) { err.textContent = t('Choose between 1 and 5 stars'); err.hidden = false; return; }
+    btn.disabled = true;
+    const done = (m) => { f.innerHTML = `<strong>${esc(f.dataset.name || '')}</strong><p class="hint">${esc(m)}</p>`; };
+    try {
+      await S.be.api('submitReview', { no: f.dataset.no, phone: $('#t-ph')?.value || ls.get('bz_last', {}).phone || '', productId: f.dataset.pid, rating: fd.get('rating'), text: fd.get('text') });
+      done(t('Thank you! Your review will appear once the shop approves it.'));
+    } catch (er) {
+      if (er.code === 'already_reviewed') done(t('You have already reviewed this product for this order'));
+      else { err.textContent = errText(er); err.hidden = false; btn.disabled = false; }
+    }
+    return;
+  }
   if (kind === 'checkout') submitCheckout(f);
   if (kind === 'track') runTrack(f);
   if (kind === 'auth') {
@@ -600,21 +827,37 @@ document.addEventListener('submit', async (e) => {
     try { await S.be.db.update('users', S.user.uid, { name: fd.name.slice(0, 80), phone: normalizePhone(fd.phone), address: fd.address.slice(0, 300), district: fd.district.slice(0, 60) }); await S.be.auth.refresh(); toast(t('Saved')); } catch (er) { toast(er.message, 'err'); }
   }
 });
-window.addEventListener('hashchange', () => { document.body.classList.remove('cart-open'); if (!location.hash.startsWith('#/track')) stopTrackPoll(); route(); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.body.classList.remove('cart-open'); });
+window.addEventListener('hashchange', () => { document.body.classList.remove('cart-open', 'catmenu-open'); if (!location.hash.startsWith('#/track')) stopTrackPoll(); route(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.body.classList.remove('cart-open', 'catmenu-open'); });
 
 /* ---------------------------------------------------------------- boot */
 async function boot() {
-  S.be = await initBackend();
-  await S.be.ready;
-  S.user = S.be.auth.user;
   const shopId = shopIdFromUrl();
-  document.body.innerHTML = '<div class="wrap"><div class="skel" style="height:300px;margin-top:40px"></div></div>';
-  if (shopId) await loadShopData(shopId);
-  shell();
+  // A saved copy lets returning visitors see the shop immediately, before the Firebase code has even loaded.
+  const snap = CONFIG.firebase.apiKey && shopId ? readSnap(shopId) : null;
+  if (snap) { applyData(snap.shop, snap.cats, snap.prods); shell(); route(); } else document.body.innerHTML = BOOT_SKELETON;
+  S.be = await initBackend();
+  const [, fresh] = await Promise.all([S.be.ready, shopId ? fetchData(shopId).catch((er) => { if (snap) return null; throw er; }) : null]);
+  S.user = S.be.auth.user;
+  if (shopId && fresh) {
+    if (fresh.shop) {
+      const shopChanged = !snap || JSON.stringify(snap.shop) !== JSON.stringify(fresh.shop);
+      const changed = saveSnap(fresh);
+      applyData(fresh.shop, fresh.cats, fresh.prods);
+      if (!snap) { shell(); route(); } else { if (shopChanged) shell(); if (changed || shopChanged) softRender(); }
+    } else {
+      try { localStorage.removeItem(SNAP + shopId); } catch { /* ignore */ }
+      S.shop = null; S.products = new Map(); S.cats = []; S.cart = [];
+      shell();
+    }
+  } else if (!snap) shell();
   S.be.auth.onChange((u) => { S.user = u; if (location.hash.startsWith('#/account') || location.hash.startsWith('#/checkout')) rerender(); });
   if (!shopId) { app().innerHTML = await pageDirectory(); return; }
   if (!S.shop) { app().innerHTML = `<div class="center"><h1>${esc(t('This shop is not set up yet.'))}</h1><a class="btn" href="/admin/">${esc(t('Open admin'))}</a></div>`; return; }
-  route();
+  if (!snap) return;
+  if (location.hash === '' || location.hash === '#/' || location.hash === '#') loadHomeReviews();
+  // The page was drawn before sign-in state was known: redraw the pages that depend on it.
+  if (['#/account', '#/checkout', '#/track'].some((h) => location.hash.startsWith(h))) rerender();
 }
+const BOOT_SKELETON = '<div class="wrap"><div class="skel" style="height:56px;margin-top:18px"></div><div class="skel" style="height:400px;margin-top:24px;border-radius:26px"></div><div class="skel" style="height:220px;margin-top:24px"></div></div>';
 boot().catch((e) => { console.error(e); document.body.innerHTML = '<div style="padding:40px;font-family:system-ui">Could not start the shop. Please refresh.</div>'; });

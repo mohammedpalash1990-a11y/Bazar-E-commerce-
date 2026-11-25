@@ -1,6 +1,6 @@
 import { t, pick } from './i18n.js';
 import { ic } from './icons.js';
-import { $, esc, safeUrl, toast, uid, imageToDataUrl, debounce } from './util.js';
+import { $, esc, safeUrl, toast, uid, imageToDataUrl, makeThumb, debounce } from './util.js';
 import { slugify } from '../../shared/core.js';
 import { A, money, num, thumb, openDialog, confirmBox, guard, errMsg } from './admin-core.js';
 
@@ -126,6 +126,7 @@ function productDialog(p, done) {
       const fresh = isNew ? null : await A.be.db.get('products', p.id);
       const doc = { ...cur, shopId: A.shopId, sold: fresh?.sold || 0, createdAt: fresh?.createdAt || now, updatedAt: now };
       delete doc.id;
+      doc.thumb = cur.images[0] ? await makeThumb(cur.images[0]) : '';
       const id = isNew ? `p_${uid(14)}` : p.id;
       await A.be.db.set('products', id, doc);
       toast(t('Saved'));

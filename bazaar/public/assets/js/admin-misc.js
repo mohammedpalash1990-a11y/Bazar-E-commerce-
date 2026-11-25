@@ -23,6 +23,58 @@ export async function renderCustomers(el) {
   draw();
 }
 
+/* ---------------------------------------------------------------- reviews */
+const starsText = (n) => `${'★'.repeat(n)}${'☆'.repeat(5 - n)}`;
+export async function renderReviews(el) {
+  let rows = [], tab = 'pending';
+  const KINDS = { pending: ['Pending', 'warn'], approved: ['Approved', 'ok'], rejected: ['Rejected', 'danger'] };
+  const draw = () => {
+    const count = (k) => rows.filter((r) => r.status === k).length;
+    const list = rows.filter((r) => r.status === tab).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    el.innerHTML = `<div class="panel"><header><h2>${esc(t('Reviews'))}</h2></header>
+      <p class="hint" style="margin-bottom:12px">${esc(t('Reviews wait here until you approve them. Only approved reviews are shown in the shop.'))} ${esc(t('Only customers with a delivered order can write a review.'))}</p>
+      <div class="chips" style="margin-bottom:14px">${Object.entries(KINDS).map(([k, [label]]) => `<button class="chip ${tab === k ? 'on' : ''}" data-tab="${k}">${esc(t(label))} (${num(count(k))})</button>`).join('')}</div>
+      ${list.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>${esc(t('Product'))}</th><th>${esc(t('Rating'))}</th><th>${esc(t('Review'))}</th><th>${esc(t('Date'))}</th><th></th></tr></thead><tbody>
+        ${list.map((r) => `<tr><td>${esc(r.productName || r.productId)}<div class="sub">${esc(r.name)} · ${esc(t('Order {n}', { n: r.orderNo }))}</div></td><td style="white-space:nowrap;color:var(--accent-ink)">${esc(starsText(Math.max(1, Math.min(5, Number(r.rating) || 0))))}</td><td style="max-width:360px;white-space:normal">${esc(r.text || '—')}</td><td>${esc(dt(r.createdAt, false))}</td>
+          <td style="white-space:nowrap">${r.status !== 'approved' ? `<button class="btn sm" data-rv="approve" data-id="${esc(r.id)}">${esc(t('Approve'))}</button>` : ''} ${r.status !== 'rejected' ? `<button class="btn ghost sm" data-rv="reject" data-id="${esc(r.id)}">${esc(t('Reject'))}</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`
+        : `<div class="empty-row">${esc(t('No reviews yet.'))}</div>`}</div>`;
+  };
+  el.onclick = async (e) => {
+    const tb = e.target.closest('[data-tab]');
+    if (tb) { tab = tb.dataset.tab; draw(); return; }
+    const b = e.target.closest('[data-rv]');
+    if (!b) return;
+    await guard(b, async () => {
+      const res = await A.be.api('adminReview', { id: b.dataset.id, action: b.dataset.rv });
+      const row = rows.find((r) => r.id === b.dataset.id);
+      if (row) row.status = res.status;
+      toast(t('Review updated'));
+      draw();
+    });
+  };
+  el.innerHTML = '<div class="skel" style="height:200px"></div>';
+  rows = await A.be.db.list('reviews', { where: [['shopId', '==', A.shopId]], limit: 500 });
+  if (!rows.some((r) => r.status === 'pending') && rows.some((r) => r.status === 'approved')) tab = 'approved';
+  draw();
+  return () => { el.onclick = null; };
+}
+
+/* ---------------------------------------------------------------- newsletter subscribers */
+export async function renderSubscribers(el) {
+  let rows = [], q = '';
+  const draw = () => {
+    const list = rows.filter((r) => !q || r.email.includes(q.toLowerCase())).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    el.innerHTML = `<div class="panel"><div class="filters"><input class="input grow" id="sb-q" type="search" placeholder="${esc(t('Search email'))}" value="${esc(q)}" aria-label="${esc(t('Search'))}"><button class="btn ghost sm" id="sb-csv">${ic('download')} CSV</button></div>
+      <p class="hint" style="margin:10px 0">${esc(t('Everyone who subscribed to your newsletter appears here.'))} (${num(rows.length)})</p>
+      ${list.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>${esc(t('Email'))}</th><th>${esc(t('Subscribed on'))}</th></tr></thead><tbody>${list.map((r) => `<tr><td>${esc(r.email)}</td><td>${esc(dt(r.createdAt))}</td></tr>`).join('')}</tbody></table></div>` : `<div class="empty-row">${esc(t('No subscribers yet.'))}</div>`}</div>`;
+    $('#sb-q').oninput = (e) => { q = e.target.value; const pos = q.length; draw(); const n = $('#sb-q'); n.focus(); n.setSelectionRange(pos, pos); };
+    $('#sb-csv').onclick = () => download('subscribers.csv', [['Email', 'Subscribed'], ...list.map((r) => [r.email, new Date(r.createdAt).toISOString()])].map((r2) => r2.map(csvCell).join(',')).join('\n'));
+  };
+  el.innerHTML = '<div class="skel" style="height:200px"></div>';
+  rows = await A.be.db.list('subscribers', { where: [['shopId', '==', A.shopId]], limit: 5000 });
+  draw();
+}
+
 /* ---------------------------------------------------------------- coupons */
 export async function renderCoupons(el) {
   let rows = [];

@@ -259,6 +259,66 @@ export async function removeStaff(store, ctx, body) {
   return { ok: true };
 }
 
-export const handlers = { previewCoupon, createOrder, trackOrder, customerCancel, adminUpdateOrder, claimInvite, bootstrap, removeStaff };
+/* ---- newsletter and reviews */
+const EMAIL_RE = /^[^\s@/\\]{1,64}@[^\s@/\\]{1,120}\.[A-Za-z]{2,24}$/;
+
+// Browsers cannot write subscribers directly (rules forbid it), so every address is checked here first.
+export async function subscribe(store, ctx, body) {
+  const shop = await loadShop(store, body.shopId, ctx.now);
+  const email = str(body.email, 120).toLowerCase();
+  if (!EMAIL_RE.test(email)) throw new AppError('bad_email', 'Enter a valid email address');
+  const id = `${shop.id}_${email}`;
+  const tx = await store.begin();
+  if (!(await tx.get('subscribers', id))) {
+    tx.set('subscribers', id, { shopId: shop.id, email, createdAt: ctx.now });
+    await tx.commit();
+  }
+  return { ok: true };
+}
+
+// Only a real, delivered order can leave a review, and only for a product that was in it.
+// The shown name is the first name on the order, so nobody can post under a made-up identity.
+export async function submitReview(store, ctx, body) {
+  const order = await findOrderByNo(store, body.no, body.phone);
+  if (order.status !== 'delivered') throw new AppError('not_delivered', 'You can review a product after your order is delivered', 409);
+  const productId = str(body.productId, 80);
+  const line = (order.items || []).find((l) => l.productId === productId);
+  if (!line) throw new AppError('not_in_order', 'That product is not in this order', 404);
+  const rating = Math.round(Number(body.rating));
+  if (!(rating >= 1 && rating <= 5)) throw new AppError('bad_rating', 'Choose between 1 and 5 stars');
+  const id = `${order.shopId}_${order.no}_${productId}`.replace(/[^A-Za-z0-9_-]/g, '_');
+  const tx = await store.begin();
+  if (await tx.get('reviews', id)) throw new AppError('already_reviewed', 'You have already reviewed this product for this order', 409);
+  tx.set('reviews', id, {
+    shopId: order.shopId, productId, productName: str(line.name, 140), orderNo: order.no,
+    name: str(order.customer?.name, 60).split(/\s+/)[0] || 'Customer', rating, text: str(body.text, 600),
+    status: 'pending', createdAt: ctx.now,
+  });
+  await tx.commit();
+  return { ok: true };
+}
+
+const avg1 = (list) => (list.length ? Math.round((list.reduce((s, r) => s + r.rating, 0) / list.length) * 10) / 10 : 0);
+
+// Owner decision on a review. The product's star average is recomputed from approved reviews only.
+export async function adminReview(store, ctx, body) {
+  const user = ctx.user;
+  if (!user) throw new AppError('auth_required', 'Sign in required', 401);
+  const status = { approve: 'approved', reject: 'rejected' }[body.action];
+  if (!status) throw new AppError('bad_action', 'Unknown action');
+  const tx = await store.begin();
+  const r = await tx.get('reviews', str(body.id, 200));
+  if (!r) throw new AppError('not_found', 'Review not found', 404);
+  if (!canManageShop(user, r.shopId) || user.role === 'staff') throw new AppError('forbidden', 'Only the shop owner can approve reviews', 403);
+  tx.set('reviews', r.id, { ...r, status, moderatedAt: ctx.now });
+  const others = (await store.query('reviews', [['productId', '==', r.productId], ['status', '==', 'approved']])).filter((x) => x.id !== r.id && x.shopId === r.shopId);
+  const counted = status === 'approved' ? [...others, r] : others;
+  const p = await tx.get('products', r.productId);
+  if (p && p.shopId === r.shopId) tx.set('products', p.id, { ...p, ratingAvg: avg1(counted), ratingCount: counted.length });
+  await tx.commit();
+  return { status, ratingAvg: avg1(counted), ratingCount: counted.length };
+}
+
+export const handlers = { previewCoupon, createOrder, trackOrder, customerCancel, adminUpdateOrder, claimInvite, bootstrap, removeStaff, subscribe, submitReview, adminReview };
 // Which handlers need a signed-in user, enforced by both runtimes before dispatch.
-export const NEEDS_AUTH = new Set(['adminUpdateOrder', 'claimInvite', 'bootstrap', 'removeStaff']);
+export const NEEDS_AUTH = new Set(['adminUpdateOrder', 'claimInvite', 'bootstrap', 'removeStaff', 'adminReview']);

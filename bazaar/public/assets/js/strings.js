@@ -1,5 +1,6 @@
 // Bengali translations. English text is the key (see i18n.js).
 import { ADMIN } from './strings-admin.js';
+import { EXTRA } from './strings-extra.js';
 
 const SHOP = {
   'About & contact': 'আমাদের সম্পর্কে ও যোগাযোগ', Account: 'অ্যাকাউন্ট', 'Add to cart': 'কার্টে যোগ করুন', 'Added to cart': 'কার্টে যোগ হয়েছে',
@@ -39,4 +40,4 @@ const SHOP = {
   'Too many attempts. Please wait a minute.': 'অনেকবার চেষ্টা হয়েছে। এক মিনিট অপেক্ষা করুন।',
 };
 
-export const BN = { ...SHOP, ...ADMIN };
+export const BN = { ...SHOP, ...ADMIN, ...EXTRA };
