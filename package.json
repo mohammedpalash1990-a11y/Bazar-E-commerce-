@@ -1,0 +1,20 @@
+{
+  "name": "bazaar",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Secure, free-to-host e-commerce for Bangladesh: single shop or many shops.",
+  "scripts": {
+    "dev": "node server.js",
+    "build": "node -e \"console.log('Bazaar build ready')\"",
+    "start": "node server.js",
+    "lint": "node --check server.js && node --check bazaar/functions/api/[[path]].js",
+    "test": "npm --prefix bazaar test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^5.3.0"
+  }
+}

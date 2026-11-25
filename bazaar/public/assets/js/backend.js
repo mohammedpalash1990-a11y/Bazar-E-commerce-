@@ -8,8 +8,17 @@ import { seedData } from './seed.js';
 const FB = 'https://www.gstatic.com/firebasejs/10.14.1';
 let singleton;
 
-export function initBackend() {
-  singleton ||= CONFIG.firebase.apiKey ? firebaseBackend() : demoBackend();
+export async function initBackend() {
+  if (singleton) return singleton;
+  let fb = CONFIG.firebase;
+  if (!fb?.apiKey) {
+    try {
+      const r = await fetch('/api/config');
+      const j = await r.json();
+      if (j?.ok && j.data?.firebase?.apiKey) fb = j.data.firebase;
+    } catch { /* offline / static server without /api/config */ }
+  }
+  singleton = fb?.apiKey ? firebaseBackend(fb) : demoBackend();
   return singleton;
 }
 
@@ -21,11 +30,11 @@ function parseApi(json) {
 }
 
 /* ------------------------------------------------------------------ Firebase */
-async function firebaseBackend() {
+async function firebaseBackend(firebaseConfig) {
   const [{ initializeApp }, A, F] = await Promise.all([
     import(`${FB}/firebase-app.js`), import(`${FB}/firebase-auth.js`), import(`${FB}/firebase-firestore.js`),
   ]);
-  const app = initializeApp(CONFIG.firebase);
+  const app = initializeApp(firebaseConfig);
   const auth = A.getAuth(app);
   const fs = F.getFirestore(app);
   const listeners = new Set();
