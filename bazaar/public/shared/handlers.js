@@ -319,6 +319,16 @@ export async function adminReview(store, ctx, body) {
   return { status, ratingAvg: avg1(counted), ratingCount: counted.length };
 }
 
-export const handlers = { previewCoupon, createOrder, trackOrder, customerCancel, adminUpdateOrder, claimInvite, bootstrap, removeStaff, subscribe, submitReview, adminReview };
+// Fallback for the admin order list: the Worker reads orders with the service account, after checking the caller manages that shop.
+export async function adminListOrders(store, ctx, body) {
+  const user = ctx.user;
+  if (!user) throw new AppError('auth_required', 'Sign in required', 401);
+  const shopId = str(body.shopId, 80);
+  if (!shopId || !canManageShop(user, shopId)) throw new AppError('forbidden', 'You cannot manage this shop', 403);
+  const rows = await store.query('orders', [['shopId', '==', shopId]]);
+  return { orders: rows.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 300) };
+}
+
+export const handlers = { previewCoupon, createOrder, trackOrder, customerCancel, adminUpdateOrder, claimInvite, bootstrap, removeStaff, subscribe, submitReview, adminReview, adminListOrders };
 // Which handlers need a signed-in user, enforced by both runtimes before dispatch.
-export const NEEDS_AUTH = new Set(['adminUpdateOrder', 'claimInvite', 'bootstrap', 'removeStaff', 'adminReview']);
+export const NEEDS_AUTH = new Set(['adminUpdateOrder', 'claimInvite', 'bootstrap', 'removeStaff', 'adminReview', 'adminListOrders']);

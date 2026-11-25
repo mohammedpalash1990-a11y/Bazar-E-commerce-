@@ -42,7 +42,7 @@ export function renderDashboard(el) {
 
 /* ---------------------------------------------------------------- orders list */
 function ordersTable(list) {
-  if (!list.length) return `<div class="empty-row">${esc(t('No orders to show.'))}</div>`;
+  if (!list.length) return `<div class="empty-row">${esc(A.ordersError ? `${t('Could not load orders')}: ${A.ordersError}` : t('No orders to show.'))}</div>`;
   return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>${esc(t('Order'))}</th><th>${esc(t('Customer'))}</th><th>${esc(t('Date'))}</th><th>${esc(t('Status'))}</th><th>${esc(t('Payment'))}</th><th class="num">${esc(t('Total'))}</th></tr></thead><tbody>
     ${list.map((o) => `<tr class="click" data-order="${esc(o.id)}" tabindex="0"><td><span class="mono">${esc(o.no)}</span></td><td>${esc(o.customer.name)}<div class="sub">${esc(o.customer.phone)} · ${esc(o.customer.district)}</div></td><td>${esc(dt(o.createdAt))}</td><td>${statusBadge(o.status)}</td><td>${payBadge(o)}<div class="sub">${esc(o.payMethod === 'cod' ? t('Cash on delivery') : o.payMethod)}</div></td><td class="num"><strong>${money(o.total)}</strong>${o.due > 0 && o.paid > 0 ? `<div class="sub">${esc(t('Due'))} ${money(o.due)}</div>` : ''}</td></tr>`).join('')}</tbody></table></div>`;
 }

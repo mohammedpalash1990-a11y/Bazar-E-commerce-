@@ -21,5 +21,5 @@ export const EXTRA = {
   'Review updated': 'রিভিউ আপডেট হয়েছে', 'Only the shop owner can approve reviews': 'শুধু দোকানের মালিক রিভিউ অনুমোদন করতে পারেন', 'Order {n}': 'অর্ডার {n}',
   'Search email': 'ইমেইল খুঁজুন', 'Reviews wait here until you approve them. Only approved reviews are shown in the shop.': 'রিভিউ এখানে অপেক্ষা করে, আপনি অনুমোদন দিলেই দোকানে দেখা যায়।',
   'Only customers with a delivered order can write a review.': 'শুধু ডেলিভারি পাওয়া ক্রেতারাই রিভিউ লিখতে পারেন।', 'Everyone who subscribed to your newsletter appears here.': 'আপনার নিউজলেটারে যারা সাবস্ক্রাইব করেছে তারা এখানে দেখা যাবে।',
-  Rating: 'রেটিং', Review: 'রিভিউ',
+  Rating: 'রেটিং', Review: 'রিভিউ', 'Could not load orders': 'অর্ডার লোড করা যায়নি',
 };

@@ -50,25 +50,40 @@ export async function guard(btn, fn) {
 
 /* ------------------------------------------------------------ live orders */
 let unwatch;
-export function watchOrders() {
-  unwatch?.();
-  A.orders = []; A.seen = null;
-  if (!A.shopId) return;
-  // No orderBy here: sorting in the browser means Firestore needs no composite index for this list.
-  unwatch = A.be.db.watch('orders', { where: [['shopId', '==', A.shopId]] }, (all) => {
-    if (!all) return;
-    const rows = [...all].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 300);
-    if (A.seen) {
-      const fresh = rows.filter((o) => !A.seen.has(o.id) && o.status === 'pending');
-      if (fresh.length) {
-        A.unread += fresh.length;
-        toast(t('New order {no}', { no: fresh[0].no }));
-        beep();
-      }
+let poll;
+function applyOrders(all) {
+  const rows = [...all].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 300);
+  if (A.seen) {
+    const fresh = rows.filter((o) => !A.seen.has(o.id) && o.status === 'pending');
+    if (fresh.length) {
+      A.unread += fresh.length;
+      toast(t('New order {no}', { no: fresh[0].no }));
+      beep();
     }
-    A.seen = new Set(rows.map((o) => o.id));
-    A.orders = rows;
-    emit('orders', rows);
+  }
+  A.seen = new Set(rows.map((o) => o.id));
+  A.orders = rows;
+  emit('orders', rows);
+}
+export function watchOrders() {
+  unwatch?.(); clearInterval(poll); poll = null;
+  A.orders = []; A.seen = null; A.ordersError = '';
+  if (!A.shopId) return;
+  const shopId = A.shopId;
+  // Orders are sorted in the browser, so Firestore needs no composite index for this list.
+  unwatch = A.be.db.watch('orders', { where: [['shopId', '==', shopId]] }, (all) => {
+    if (!all) {
+      // Live listener refused (rules or network): read the list through the Worker instead and refresh it every few seconds.
+      if (poll) return;
+      const pull = async () => {
+        try { const r = await A.be.api('adminListOrders', { shopId }); if (A.shopId === shopId) { A.ordersError = ''; applyOrders(r.orders || []); } }
+        catch (e) { A.ordersError = e.code || 'unknown'; emit('orders', A.orders); }
+      };
+      pull(); poll = setInterval(pull, 8000);
+      return;
+    }
+    clearInterval(poll); poll = null; A.ordersError = '';
+    applyOrders(all);
   });
 }
 

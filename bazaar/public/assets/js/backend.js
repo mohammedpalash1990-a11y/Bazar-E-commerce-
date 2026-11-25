@@ -86,7 +86,7 @@ async function firebaseBackend(firebaseConfig) {
       async set(col, id, data) { const { id: _i, ...d } = data; await F.setDoc(F.doc(fs, col, id), d); return id; },
       async update(col, id, patch) { await F.updateDoc(F.doc(fs, col, id), patch); },
       async remove(col, id) { await F.deleteDoc(F.doc(fs, col, id)); },
-      watch(col, opts, cb) { return F.onSnapshot(build(col, opts), (s) => cb(rows(s)), () => cb(null)); },
+      watch(col, opts, cb) { return F.onSnapshot(build(col, opts), (s) => cb(rows(s)), (e) => { console.error('Firestore watch failed', col, e); cb(null, e); }); },
     },
     async api(name, body = {}) {
       const headers = { 'content-type': 'application/json' };
