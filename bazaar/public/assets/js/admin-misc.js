@@ -19,7 +19,7 @@ export async function renderCustomers(el) {
     $('#cu-csv').onclick = () => download('customers.csv', [['Name', 'Phone', 'District', 'Address', 'Orders', 'Spent'], ...list.map((c) => [c.name, c.phone, c.district, c.address, c.orders, c.spent])].map((r) => r.map(csvCell).join(',')).join('\n'));
   };
   el.innerHTML = '<div class="skel" style="height:200px"></div>';
-  rows = await A.be.db.list('customers', { where: [['shopId', '==', A.shopId]], orderBy: [['lastOrderAt', 'desc']], limit: 1000 });
+  rows = (await A.be.db.list('customers', { where: [['shopId', '==', A.shopId]] })).sort((a, b) => (b.lastOrderAt || 0) - (a.lastOrderAt || 0)).slice(0, 1000);
   draw();
 }
 
@@ -126,7 +126,7 @@ export async function renderReports(el) {
     const now = Date.now();
     const start = range === 'custom' && from ? new Date(`${from}T00:00:00`).getTime() : dayStart(now - (Number(range) - 1) * 86400000);
     const end = range === 'custom' && to ? new Date(`${to}T23:59:59`).getTime() : now;
-    const rows = (await A.be.db.list('orders', { where: [['shopId', '==', A.shopId], ['createdAt', '>=', start], ['createdAt', '<=', end]], orderBy: [['createdAt', 'desc']], limit: 2000 }));
+    const rows = (await A.be.db.list('orders', { where: [['shopId', '==', A.shopId]] })).filter((o) => o.createdAt >= start && o.createdAt <= end).sort((a, b) => b.createdAt - a.createdAt).slice(0, 2000);
     const live = rows.filter((o) => o.status !== 'cancelled' && o.status !== 'returned');
     const sum = (a, k) => a.reduce((s, o) => s + o[k], 0);
     const byStatus = Object.fromEntries(Object.keys(STATUS).map((k) => [k, rows.filter((o) => o.status === k).length]));

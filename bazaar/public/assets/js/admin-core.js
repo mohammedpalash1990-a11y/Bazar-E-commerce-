@@ -54,8 +54,10 @@ export function watchOrders() {
   unwatch?.();
   A.orders = []; A.seen = null;
   if (!A.shopId) return;
-  unwatch = A.be.db.watch('orders', { where: [['shopId', '==', A.shopId]], orderBy: [['createdAt', 'desc']], limit: 300 }, (rows) => {
-    if (!rows) return;
+  // No orderBy here: sorting in the browser means Firestore needs no composite index for this list.
+  unwatch = A.be.db.watch('orders', { where: [['shopId', '==', A.shopId]] }, (all) => {
+    if (!all) return;
+    const rows = [...all].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 300);
     if (A.seen) {
       const fresh = rows.filter((o) => !A.seen.has(o.id) && o.status === 'pending');
       if (fresh.length) {

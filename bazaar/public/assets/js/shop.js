@@ -638,7 +638,7 @@ async function loadMyOrders() {
   const box = $('#my-orders');
   if (!box || !S.user) return;
   try {
-    const list = await S.be.db.list('orders', { where: [['uid', '==', S.user.uid]], orderBy: [['createdAt', 'desc']], limit: 30 });
+    const list = (await S.be.db.list('orders', { where: [['uid', '==', S.user.uid]] })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 30);
     box.innerHTML = list.length ? list.filter((o) => o.shopId === S.shop.id).map((o) => `<div class="ord"><div><strong>${esc(o.no)}</strong><div class="hint">${esc(fmtDate(o.createdAt, getLang()))}</div></div><span class="badge ${statusKind(o.status)}">${esc(statusLabel(o.status))}</span><strong>${money(o.total)}</strong><a class="btn ghost sm" href="#/track?no=${encodeURIComponent(o.no)}&phone=${encodeURIComponent(o.customer?.phone || '')}">${esc(t('Track'))}</a></div>`).join('') || `<p class="hint">${esc(t('No orders yet.'))}</p>` : `<p class="hint">${esc(t('No orders yet.'))}</p>`;
   } catch { box.innerHTML = `<p class="hint">${esc(t('No orders yet.'))}</p>`; }
 }
