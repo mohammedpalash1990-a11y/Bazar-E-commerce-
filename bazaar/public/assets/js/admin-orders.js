@@ -54,6 +54,24 @@ function bindRows(el) {
 const F = { q: '', status: '', pay: '', range: 'all' };
 
 // Steadfast booking: shows the saved tracking code once booked, otherwise the "send to courier" actions.
+// Ready-made customer messages (Bengali, as customers are in Bangladesh). Opens WhatsApp or the SMS app with the text filled in; nothing is sent automatically.
+function msgTexts(o) {
+  const shop = A.shop?.name || '';
+  const link = `${location.origin}/s/${A.shopId}/#/track?no=${encodeURIComponent(o.no)}&phone=${encodeURIComponent(o.customer.phone)}`;
+  const c = o.courier?.trackingId ? `${o.courier.name || 'Courier'}: ${o.courier.trackingId}` : '';
+  const due = o.due > 0 ? ` ক্যাশ অন ডেলিভারিতে ${money(o.due)} দিতে হবে।` : '';
+  const hi = `${o.customer.name}, ${shop} থেকে আপনার অর্ডার ${o.no}`;
+  return [
+    ['Order confirmed', `${hi} নিশ্চিত হয়েছে।${due} ট্র্যাক করুন: ${link}`],
+    ['Order shipped', `${hi} কুরিয়ারে পাঠানো হয়েছে।${c ? ` ${c}।` : ''} ট্র্যাক করুন: ${link}`],
+    ['Order delivered', `${hi} পৌঁছে গেছে। ${shop}-এ কেনাকাটার জন্য ধন্যবাদ।`],
+  ];
+}
+function msgBox(o, wa) {
+  const phone = String(wa).replace(/\D/g, '');
+  return `<div class="cardx"><h3>${esc(t('Message customer'))}</h3>${msgTexts(o).map(([k, text]) => `<div class="row" style="align-items:center;gap:8px"><span>${esc(t(k))}</span><span class="acts-row"><a class="btn ghost sm" target="_blank" rel="noopener" href="https://wa.me/${esc(phone)}?text=${encodeURIComponent(text)}">WhatsApp</a><a class="btn ghost sm" href="sms:+${esc(phone)}?&body=${encodeURIComponent(text)}">SMS</a></span></div>`).join('')}<p class="hint">${esc(t('Opens WhatsApp or your SMS app with the message ready. You press send.'))}</p></div>`;
+}
+
 function courierBox(o) {
   const c = o.courier || {};
   if (c.consignmentId) return `<p class="hint" style="margin:0 0 10px"><strong>${esc(c.name)}</strong> · ${esc(c.trackingId)}${c.status ? ` · ${esc(courierStatusLabel(c.status))}` : ''}</p>`;
@@ -127,6 +145,7 @@ export function orderDialog(id) {
         ${o.payments?.length ? `<div class="hist">${o.payments.map((p) => `<div><time>${esc(dt(p.at))}</time><span>${money(p.amount)} · ${esc(p.method)} ${esc(p.note || '')}</span></div>`).join('')}</div>` : ''}</div></div>
       <div style="display:grid;gap:18px">
       <div class="cardx"><h3>${esc(t('Customer'))}</h3><dl class="kv"><dt>${esc(t('Name'))}</dt><dd>${esc(o.customer.name)}</dd><dt>${esc(t('Phone'))}</dt><dd><a href="tel:${esc(o.customer.phone)}">${esc(o.customer.phone)}</a> · <a href="https://wa.me/${esc(wa)}" target="_blank" rel="noopener">WhatsApp</a></dd><dt>${esc(t('District'))}</dt><dd>${esc(o.customer.district)}</dd><dt>${esc(t('Address'))}</dt><dd>${esc(o.customer.address)}</dd>${o.customer.note ? `<dt>${esc(t('Note'))}</dt><dd>${esc(o.customer.note)}</dd>` : ''}</dl></div>
+      ${msgBox(o, wa)}
       <div class="cardx"><h3>${esc(t('Courier'))}</h3>${courierBox(o)}<form class="form" data-f="courier" style="gap:8px"><input class="input" name="name" placeholder="${esc(t('Courier name (Steadfast, Pathao…)'))}" value="${esc(o.courier?.name || '')}" maxlength="60"><input class="input" name="trackingId" placeholder="${esc(t('Tracking ID'))}" value="${esc(o.courier?.trackingId || '')}" maxlength="60"><button class="btn ghost sm">${esc(t('Save courier'))}</button></form></div>
       <div class="cardx"><h3>${esc(t('History'))}</h3><div class="hist">${[...o.history].reverse().map((h) => `<div><time>${esc(dt(h.at))}</time><span>${esc(h.text)} <span class="hint">· ${esc(h.by)}</span></span></div>`).join('')}</div>
         <form class="acts-row" data-f="note"><input class="input" style="flex:1;height:38px" name="text" placeholder="${esc(t('Add an internal note'))}" maxlength="300" required><button class="btn ghost sm">${esc(t('Add'))}</button></form></div></div></div></div>

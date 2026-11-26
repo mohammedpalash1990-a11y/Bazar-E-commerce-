@@ -4,6 +4,9 @@ import { $, esc, safeUrl, toast, uid, imageToDataUrl, makeThumb, debounce } from
 import { slugify } from '../../shared/core.js';
 import { A, money, num, thumb, openDialog, confirmBox, guard, errMsg } from './admin-core.js';
 
+// Rebuilds the public catalogue snapshot after any product change.
+const syncCat = () => A.be.api('rebuildCatalog', { shopId: A.shopId }).catch(() => {});
+
 const totalStock = (p) => (p.variants?.length ? p.variants.reduce((s, v) => s + (Number(v.stock) || 0), 0) : Number(p.stock) || 0);
 const PF = { q: '', cat: '', st: '' };
 let cats = [];
@@ -12,7 +15,6 @@ async function loadCats() { cats = (await A.be.db.list('categories', { where: [[
 
 export async function renderProducts(el) {
   let items = [];
-  const syncCat = () => A.be.api('rebuildCatalog', { shopId: A.shopId }).catch(() => {});
   const load = async () => { [items] = await Promise.all([A.be.db.list('products', { where: [['shopId', '==', A.shopId]] }), loadCats()]); draw(); if (!A.catSynced) { A.catSynced = true; syncCat(); } };
   function draw() {
     const q = PF.q.trim().toLowerCase();

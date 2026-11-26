@@ -34,4 +34,6 @@ export const EXTRA = {
   Brand: 'ব্র্যান্ড', 'All brands': 'সব ব্র্যান্ড', 'Sale ends': 'অফার শেষ', 'Optional. The sale price stops at this time.': 'ঐচ্ছিক। এই সময়ের পর অফার দাম আর থাকবে না।',
   'Sale ends in {t}': 'অফার শেষ হতে বাকি {t}', d: 'দিন', '{n} days in {d}': '{d}-এ {n} দিন', '{n} days elsewhere': 'অন্যত্র {n} দিন',
   'Delivery time inside home district (days)': 'হোম জেলায় ডেলিভারি সময় (দিন)', 'Delivery time elsewhere (days)': 'অন্যত্র ডেলিভারি সময় (দিন)',
+  'Message customer': 'কাস্টমারকে বার্তা', 'Order confirmed': 'অর্ডার নিশ্চিত', 'Order shipped': 'অর্ডার পাঠানো হয়েছে', 'Order delivered': 'অর্ডার পৌঁছেছে',
+  'Opens WhatsApp or your SMS app with the message ready. You press send.': 'WhatsApp বা SMS অ্যাপে বার্তা তৈরি হয়ে খুলবে। পাঠানোর বোতাম আপনি চাপবেন।',
 };
