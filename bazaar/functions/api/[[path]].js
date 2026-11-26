@@ -30,10 +30,28 @@ const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 const fail = (e) => json({ ok: false, error: { code: e.code, message: e.message } }, e.status);
 
+// Product pictures are stored inside the product document; this turns one back into a real, long-cached image file.
+async function productImage(request, env, id) {
+  const gone = () => new Response('Not found', { status: 404, headers: { 'cache-control': 'no-store' } });
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) return gone();
+  const cache = typeof caches !== 'undefined' ? caches.default : null;
+  if (cache) { const hit = await cache.match(request); if (hit) return hit; }
+  const p = await new FirestoreStore(env).get('products', id);
+  const m = p && p.active !== false ? /^data:(image\/(?:webp|jpeg|png|gif));base64,([A-Za-z0-9+/=]+)$/.exec(p.thumb || p.images?.[0] || '') : null;
+  if (!m) return gone();
+  const bytes = Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0));
+  const res = new Response(request.method === 'HEAD' ? null : bytes, {
+    headers: { 'content-type': m[1], 'cache-control': 'public, max-age=31536000, immutable', 'x-content-type-options': 'nosniff', 'content-length': String(bytes.length) },
+  });
+  if (cache) await cache.put(request, res.clone());
+  return res;
+}
+
 export async function onRequest({ request, env, params }) {
   try {
     const name = [].concat(params.path || []).join('/');
     if (name === 'health') return json({ ok: true });
+    if (name.startsWith('img/') && (request.method === 'GET' || request.method === 'HEAD')) return productImage(request, env, name.slice(4));
     if (request.method !== 'POST') throw new AppError('method_not_allowed', 'POST only', 405);
     const origin = request.headers.get('origin');
     if (origin && origin !== new URL(request.url).origin) throw new AppError('bad_origin', 'Cross-site requests are not allowed', 403);

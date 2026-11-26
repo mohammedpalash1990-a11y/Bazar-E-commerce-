@@ -53,11 +53,15 @@ function saveSnap({ shop, cats, prods }) {
 }
 async function fetchData(shopId) {
   const db = S.be.db;
-  const [shop, cats, prods] = await Promise.all([
+  const [shop, cats, cat] = await Promise.all([
     db.get('shops', shopId),
     db.list('categories', { where: [['shopId', '==', shopId]] }),
-    db.list('products', { where: [['shopId', '==', shopId], ['active', '==', true]], limit: 500 }),
+    db.get('catalog', shopId).catch(() => null),
   ]);
+  // One catalogue document = one read. Shops that have no snapshot yet fall back to reading every product.
+  const prods = cat && Array.isArray(cat.prods)
+    ? cat.prods.map((p) => ({ ...p, _slim: true }))
+    : await db.list('products', { where: [['shopId', '==', shopId], ['active', '==', true]], limit: 500 });
   return { shop, cats, prods };
 }
 function applyData(shop, cats, prods) {

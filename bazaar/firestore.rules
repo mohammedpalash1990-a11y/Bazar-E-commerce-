@@ -67,6 +67,11 @@ service cloud.firestore {
     }
 
     // Written only by the Worker. Anyone can read approved reviews; the shop's staff can read all of them.
+    match /catalog/{shopId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     match /reviews/{id} {
       allow read: if resource.data.status == 'approved' || isStaff(resource.data.shopId);
       allow write: if false;

@@ -5,7 +5,7 @@ export const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ESC[c]);
 // Only http(s) and our own data:image URLs may become <img src>; blocks javascript: and friends.
-export const safeUrl = (u) => (/^(https:\/\/|data:image\/(png|jpe?g|webp|gif|svg\+xml);)/i.test(String(u || '')) ? String(u) : '');
+export const safeUrl = (u) => (/^(https:\/\/|data:image\/(png|jpe?g|webp|gif|svg\+xml);|\/api\/img\/[A-Za-z0-9_-]{1,80}\?v=\d{1,15}$)/i.test(String(u || '')) ? String(u) : '');
 
 export function h(tag, attrs = {}, ...kids) {
   const el = document.createElement(tag);

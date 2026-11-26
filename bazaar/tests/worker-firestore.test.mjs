@@ -103,3 +103,18 @@ test('bootstrap: setup token required, works once', async () => {
   assert.equal(db['users/boss'].role, 'super');
   assert.equal((await call('bootstrap', { token: 'boot' }, t)).status, 409);
 });
+
+test('image route serves a stored picture as a long-cached file and refuses hidden or odd ids', async () => {
+  const pic = 'data:image/webp;base64,UklGRg==';
+  db['products/pimg'] = { shopId: 'main', name: 'Pic', price: 1, stock: 1, active: true, thumb: pic, images: [] };
+  db['products/phid'] = { shopId: 'main', name: 'Hid', price: 1, stock: 1, active: false, thumb: pic, images: [] };
+  const get = (...path) => onRequest({ request: new Request(`https://x.test/api/${path.join('/')}`), env, params: { path } });
+  const ok = await get('img', 'pimg');
+  assert.equal(ok.status, 200);
+  assert.equal(ok.headers.get('content-type'), 'image/webp');
+  assert.match(ok.headers.get('cache-control'), /immutable/);
+  assert.equal((await ok.arrayBuffer()).byteLength, 4);
+  assert.equal((await get('img', 'phid')).status, 404);
+  assert.equal((await get('img', 'missing')).status, 404);
+  assert.equal((await get('img', 'a/b')).status, 404);
+});

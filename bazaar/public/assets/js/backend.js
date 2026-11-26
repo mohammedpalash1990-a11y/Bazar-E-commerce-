@@ -196,7 +196,7 @@ function demoBackend() {
         if (!Object.hasOwn(handlers, name)) throw new AppError('not_found', 'Unknown endpoint', 404);
         const user = state.user;
         if (NEEDS_AUTH.has(name) && !user) throw new AppError('auth_required', 'Sign in required', 401);
-        const data = await handlers[name](store, { now: Date.now(), user }, JSON.parse(JSON.stringify(body)), DEMO_ENV);
+        const data = await handlers[name](store, { now: Date.now(), user, inline: true }, JSON.parse(JSON.stringify(body)), DEMO_ENV);
         if (['claimInvite', 'bootstrap'].includes(name)) await this.auth.refresh();
         return data;
       } catch (e) {

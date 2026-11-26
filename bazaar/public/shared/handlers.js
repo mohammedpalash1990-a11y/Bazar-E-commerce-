@@ -66,6 +66,7 @@ export async function createOrder(store, ctx, body) {
   }
   const priced = priceOrder({ items: body.items, products, shop, coupon, district: customer.district, now: ctx.now });
 
+  const touched = [];
   for (const line of priced.lines) {
     const p = products.get(line.productId);
     if (p.trackStock === false) continue;
@@ -78,7 +79,9 @@ export async function createOrder(store, ctx, body) {
       p.sold = (Number(p.sold) || 0) + line.qty;
     }
     tx.set('products', p.id, p);
+    touched.push(p);
   }
+  await patchCatalog(tx, touched, ctx);
   if (coupon) tx.set('coupons', coupon.id, { ...coupon, used: (Number(coupon.used) || 0) + 1 });
 
   const now = ctx.now;
@@ -125,8 +128,49 @@ export async function trackOrder(store, ctx, body) {
   return publicOrder(await findOrderByNo(store, body.no, body.phone));
 }
 
-async function restock(tx, order) {
+/* ------------------------------------------------------------------ catalogue snapshot
+   One small document per shop (catalog/<shopId>) lists every live product without its pictures. The storefront reads that
+   single document instead of every product, which keeps Firestore reads tiny. Pictures are served from /api/img/<id>. */
+const slimProduct = (p, ctx) => {
+  const { images, thumb, description, ...rest } = p;
+  const pic = thumb || (Array.isArray(images) ? images[0] : '') || '';
+  return { ...rest, description: str(description, 160), images: [], thumb: pic ? (ctx?.inline ? pic : `/api/img/${p.id}?v=${p.updatedAt || 0}`) : '' };
+};
+
+export async function buildCatalog(store, shopId, ctx) {
+  const rows = await store.query('products', [['shopId', '==', shopId], ['active', '==', true]]);
+  const tx = await store.begin();
+  tx.set('catalog', shopId, { shopId, updatedAt: ctx.now, prods: rows.map((p) => slimProduct(p, ctx)) });
+  await tx.commit();
+  return rows.length;
+}
+
+// Keeps the snapshot in step with stock, sold counts and ratings changed inside an order or review transaction.
+async function patchCatalog(tx, products, ctx) {
+  const byShop = new Map();
+  for (const p of products) if (p?.shopId) byShop.set(p.shopId, [...(byShop.get(p.shopId) || []), p]);
+  for (const [shopId, list] of byShop) {
+    const cat = await tx.get('catalog', shopId);
+    if (!cat) continue;
+    const prods = new Map((cat.prods || []).map((x) => [x.id, x]));
+    for (const p of list) {
+      if (p.active === false) prods.delete(p.id);
+      else prods.set(p.id, slimProduct(p, ctx));
+    }
+    tx.set('catalog', shopId, { ...cat, updatedAt: ctx.now, prods: [...prods.values()] });
+  }
+}
+
+export async function rebuildCatalog(store, ctx, body) {
+  if (!ctx.user) throw new AppError('auth_required', 'Sign in required', 401);
+  const shopId = str(body.shopId, 80);
+  if (!shopId || !canManageShop(ctx.user, shopId)) throw new AppError('forbidden', 'You cannot manage this shop', 403);
+  return { products: await buildCatalog(store, shopId, ctx) };
+}
+
+async function restock(tx, order, ctx) {
   if (order.restocked) return;
+  const touched = [];
   for (const line of order.items) {
     const p = await tx.get('products', line.productId);
     if (!p || p.trackStock === false) continue;
@@ -137,7 +181,9 @@ async function restock(tx, order) {
     }
     p.sold = Math.max(0, (Number(p.sold) || 0) - line.qty);
     tx.set('products', p.id, p);
+    touched.push(p);
   }
+  await patchCatalog(tx, touched, ctx);
   order.restocked = true;
 }
 
@@ -146,7 +192,7 @@ export async function customerCancel(store, ctx, body) {
   const tx = await store.begin();
   const order = await tx.get('orders', found.id);
   if (order.status !== 'pending') throw new AppError('cannot_cancel', 'This order is already being processed. Contact the shop to cancel.', 409);
-  await restock(tx, order);
+  await restock(tx, order, ctx);
   order.status = 'cancelled';
   order.updatedAt = ctx.now;
   order.history = [...order.history, { at: ctx.now, by: 'customer', type: 'status', text: 'Cancelled by customer' }];
@@ -170,7 +216,7 @@ export async function adminUpdateOrder(store, ctx, body) {
       const to = str(body.status, 20);
       if (!ORDER_STATUSES.includes(to)) throw new AppError('bad_status', 'Unknown status');
       if (!canTransition(order.status, to)) throw new AppError('bad_transition', `Cannot move from ${order.status} to ${to}`, 409);
-      if (RESTOCK_STATUSES.has(to)) await restock(tx, order);
+      if (RESTOCK_STATUSES.has(to)) await restock(tx, order, ctx);
       order.status = to;
       if (to === 'delivered' && order.payMethod === 'cod' && order.due > 0) {
         order.payments.push({ at: ctx.now, amount: order.due, method: 'cod', note: 'Collected on delivery', by });
@@ -314,7 +360,11 @@ export async function adminReview(store, ctx, body) {
   const others = (await store.query('reviews', [['productId', '==', r.productId], ['status', '==', 'approved']])).filter((x) => x.id !== r.id && x.shopId === r.shopId);
   const counted = status === 'approved' ? [...others, r] : others;
   const p = await tx.get('products', r.productId);
-  if (p && p.shopId === r.shopId) tx.set('products', p.id, { ...p, ratingAvg: avg1(counted), ratingCount: counted.length });
+  if (p && p.shopId === r.shopId) {
+    const rated = { ...p, ratingAvg: avg1(counted), ratingCount: counted.length };
+    tx.set('products', p.id, rated);
+    await patchCatalog(tx, [rated], ctx);
+  }
   await tx.commit();
   return { status, ratingAvg: avg1(counted), ratingCount: counted.length };
 }
@@ -441,6 +491,6 @@ export async function courierWebhook(store, ctx, body) {
   return { ok: true };
 }
 
-export const handlers = { previewCoupon, createOrder, trackOrder, customerCancel, adminUpdateOrder, claimInvite, bootstrap, removeStaff, subscribe, submitReview, adminReview, adminListOrders, bookCourier, courierFraud, courierWebhook };
+export const handlers = { previewCoupon, createOrder, trackOrder, customerCancel, adminUpdateOrder, claimInvite, bootstrap, removeStaff, subscribe, submitReview, adminReview, adminListOrders, bookCourier, courierFraud, courierWebhook, rebuildCatalog };
 // Which handlers need a signed-in user, enforced by both runtimes before dispatch.
-export const NEEDS_AUTH = new Set(['adminUpdateOrder', 'claimInvite', 'bootstrap', 'removeStaff', 'adminReview', 'adminListOrders', 'bookCourier', 'courierFraud']);
+export const NEEDS_AUTH = new Set(['adminUpdateOrder', 'claimInvite', 'bootstrap', 'removeStaff', 'adminReview', 'adminListOrders', 'bookCourier', 'courierFraud', 'rebuildCatalog']);

@@ -12,7 +12,8 @@ async function loadCats() { cats = (await A.be.db.list('categories', { where: [[
 
 export async function renderProducts(el) {
   let items = [];
-  const load = async () => { [items] = await Promise.all([A.be.db.list('products', { where: [['shopId', '==', A.shopId]] }), loadCats()]); draw(); };
+  const syncCat = () => A.be.api('rebuildCatalog', { shopId: A.shopId }).catch(() => {});
+  const load = async () => { [items] = await Promise.all([A.be.db.list('products', { where: [['shopId', '==', A.shopId]] }), loadCats()]); draw(); if (!A.catSynced) { A.catSynced = true; syncCat(); } };
   function draw() {
     const q = PF.q.trim().toLowerCase();
     const list = items.filter((p) => (!PF.cat || p.category === PF.cat) && (!PF.st || (PF.st === 'low' ? p.trackStock !== false && totalStock(p) <= 5 : PF.st === 'off' ? p.active === false : p.active !== false))
@@ -38,13 +39,13 @@ export async function renderProducts(el) {
   }
   el.onchange = async (e) => {
     const sid = e.target.dataset.stock, aid = e.target.dataset.active;
-    if (sid) { const n = Math.max(0, Math.floor(Number(e.target.value) || 0)); await guard(e.target, async () => { await A.be.db.update('products', sid, { stock: n, updatedAt: Date.now() }); items.find((p) => p.id === sid).stock = n; toast(t('Saved')); }); }
-    if (aid) await guard(e.target, async () => { await A.be.db.update('products', aid, { active: e.target.checked, updatedAt: Date.now() }); items.find((p) => p.id === aid).active = e.target.checked; toast(t('Saved')); });
+    if (sid) { const n = Math.max(0, Math.floor(Number(e.target.value) || 0)); await guard(e.target, async () => { await A.be.db.update('products', sid, { stock: n, updatedAt: Date.now() }); syncCat(); items.find((p) => p.id === sid).stock = n; toast(t('Saved')); }); }
+    if (aid) await guard(e.target, async () => { await A.be.db.update('products', aid, { active: e.target.checked, updatedAt: Date.now() }); syncCat(); items.find((p) => p.id === aid).active = e.target.checked; toast(t('Saved')); });
   };
   el.onclick = async (e) => {
     const ed = e.target.closest('[data-edit]'), dl = e.target.closest('[data-del]');
     if (ed) productDialog(items.find((p) => p.id === ed.dataset.edit), load);
-    if (dl && await confirmBox(t('Delete this product?'))) { await guard(null, async () => { await A.be.db.remove('products', dl.dataset.del); toast(t('Deleted')); await load(); }); }
+    if (dl && await confirmBox(t('Delete this product?'))) { await guard(null, async () => { await A.be.db.remove('products', dl.dataset.del); syncCat(); toast(t('Deleted')); await load(); }); }
   };
   el.innerHTML = '<div class="skel" style="height:240px"></div>';
   await load();
@@ -129,6 +130,7 @@ function productDialog(p, done) {
       doc.thumb = cur.images[0] ? await makeThumb(cur.images[0]) : '';
       const id = isNew ? `p_${uid(14)}` : p.id;
       await A.be.db.set('products', id, doc);
+      syncCat();
       toast(t('Saved'));
       d.close();
       await done();
