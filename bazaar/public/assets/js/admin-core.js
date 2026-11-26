@@ -41,7 +41,7 @@ export function confirmBox(message, { danger = true, ok = 'Confirm' } = {}) {
   });
 }
 
-export const errMsg = (e) => e?.message || t('Something went wrong. Please try again.');
+export const errMsg = (e) => (e?.message ? t(e.message) : t('Something went wrong. Please try again.'));
 
 export async function guard(btn, fn) {
   if (btn) btn.disabled = true;
@@ -104,7 +104,7 @@ export function invoiceHtml(o, shop, thermal) {
   return `<div class="inv ${thermal ? 'thermal' : ''}">
     <div class="hd"><div>${logo}<h1>${esc(shop.name)}</h1><div>${esc(c.phone || '')} ${esc(c.email || '')}<br>${esc(c.address || '')}</div></div>
       <div style="text-align:${thermal ? 'center' : 'right'}"><h1>${esc(t('INVOICE'))}</h1><div>${esc(o.no)}<br>${esc(dt(o.createdAt))}</div></div></div>
-    <div><strong>${esc(o.customer.name)}</strong><br>${esc(o.customer.phone)}<br>${esc(o.customer.address)}, ${esc(o.customer.district)}</div>
+    <div><strong>${esc(o.customer.name)}</strong><br>${esc(o.customer.phone)}<br>${esc(o.customer.address)}, ${esc(o.customer.district)}${o.courier?.trackingId ? `<br>${esc(t('Courier'))}: ${esc(o.courier.name)} ${esc(o.courier.trackingId)}` : ''}</div>
     <table><thead><tr><th>${esc(t('Item'))}</th><th class="r">${esc(t('Qty'))}</th><th class="r">${esc(t('Price'))}</th><th class="r">${esc(t('Total'))}</th></tr></thead><tbody>
       ${o.items.map((l) => `<tr><td>${esc(l.name)}${l.variantLabel ? ` (${esc(l.variantLabel)})` : ''}</td><td class="r">${l.qty}</td><td class="r">${money(l.unit)}</td><td class="r">${money(l.total)}</td></tr>`).join('')}
       <tr><td colspan="3" class="r">${esc(t('Subtotal'))}</td><td class="r">${money(o.subtotal)}</td></tr>

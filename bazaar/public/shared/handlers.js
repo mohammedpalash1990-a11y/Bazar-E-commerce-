@@ -108,7 +108,7 @@ function publicOrder(o) {
   return {
     id: o.id, no: o.no, status: o.status, items: o.items, subtotal: o.subtotal, discount: o.discount,
     delivery: o.delivery, total: o.total, paid: o.paid, due: o.due, payMethod: o.payMethod,
-    courier: o.courier, createdAt: o.createdAt, customer: { name: o.customer?.name, district: o.customer?.district },
+    courier: o.courier ? { name: o.courier.name, trackingId: o.courier.trackingId, status: o.courier.status || '' } : o.courier, createdAt: o.createdAt, customer: { name: o.customer?.name, district: o.customer?.district },
     history: (o.history || []).filter((h) => h.type === 'status' || h.type === 'created').map((h) => ({ at: h.at, text: h.text })),
   };
 }
@@ -329,6 +329,118 @@ export async function adminListOrders(store, ctx, body) {
   return { orders: rows.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 300) };
 }
 
-export const handlers = { previewCoupon, createOrder, trackOrder, customerCancel, adminUpdateOrder, claimInvite, bootstrap, removeStaff, subscribe, submitReview, adminReview, adminListOrders };
+/* ------------------------------------------------------------------ courier (Steadfast) */
+const COURIER_BASE = 'https://portal.packzy.com/api/v1';
+
+async function courierCall(ctx, env, path, init) {
+  if (!env?.STEADFAST_API_KEY || !env?.STEADFAST_SECRET_KEY) throw new AppError('courier_not_set', 'Courier booking is not set up yet', 400);
+  let res;
+  try {
+    res = await (ctx.fetch || fetch)(`${COURIER_BASE}${path}`, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'Api-Key': env.STEADFAST_API_KEY, 'Secret-Key': env.STEADFAST_SECRET_KEY },
+    });
+  } catch { throw new AppError('courier_unreachable', 'Could not reach the courier. Try again in a moment.', 502); }
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json) throw new AppError('courier_error', str(json?.message, 160) || 'The courier refused this request', 502);
+  return json;
+}
+
+async function manageableOrder(store, ctx, id) {
+  if (!ctx.user) throw new AppError('auth_required', 'Sign in required', 401);
+  const tx = await store.begin();
+  const order = await tx.get('orders', str(id, 80));
+  if (!order) throw new AppError('order_not_found', 'Order not found', 404);
+  if (!canManageShop(ctx.user, order.shopId)) throw new AppError('forbidden', 'You cannot manage this order', 403);
+  return { tx, order };
+}
+
+// "Send to courier": the Worker books the parcel, then saves the tracking code and moves the order to Shipped.
+// A short "sending" lock stops a double click from booking the same parcel twice.
+export async function bookCourier(store, ctx, body, env) {
+  const { tx, order } = await manageableOrder(store, ctx, body.id);
+  if (order.courier?.consignmentId) throw new AppError('courier_booked', 'This order is already with the courier', 409);
+  if (!['confirmed', 'processing'].includes(order.status)) throw new AppError('bad_status', 'Confirm the order before sending it to the courier', 409);
+  if (order.courier?.state === 'sending' && ctx.now - (order.courier.sendingAt || 0) < 60000) throw new AppError('courier_busy', 'Booking is already in progress. Wait a minute.', 409);
+  if (!env?.STEADFAST_API_KEY || !env?.STEADFAST_SECRET_KEY) throw new AppError('courier_not_set', 'Courier booking is not set up yet', 400);
+
+  order.courier = { ...(order.courier || { name: '', trackingId: '' }), state: 'sending', sendingAt: ctx.now };
+  tx.set('orders', order.id, order);
+  await tx.commit();
+
+  let parcel;
+  try {
+    const json = await courierCall(ctx, env, '/create_order', {
+      method: 'POST',
+      body: JSON.stringify({
+        invoice: order.no,
+        recipient_name: order.customer.name,
+        recipient_phone: order.customer.phone,
+        recipient_address: `${order.customer.address}, ${order.customer.district}`.slice(0, 250),
+        cod_amount: Math.max(0, Number(order.due) || 0),
+        note: str(order.customer.note, 200),
+      }),
+    });
+    parcel = json.consignment;
+    if (!parcel?.consignment_id) throw new AppError('courier_error', str(json.message, 160) || 'The courier did not return a tracking code', 502);
+  } catch (e) {
+    const t2 = await store.begin();
+    const o2 = await t2.get('orders', order.id);
+    if (o2) { o2.courier = { ...o2.courier, state: 'failed' }; t2.set('orders', o2.id, o2); await t2.commit(); }
+    throw e;
+  }
+
+  const t3 = await store.begin();
+  const fresh = await t3.get('orders', order.id);
+  const by = ctx.user.email || ctx.user.uid;
+  fresh.courier = { name: 'Steadfast', trackingId: str(parcel.tracking_code, 60), consignmentId: String(parcel.consignment_id), status: str(parcel.status, 40), statusAt: ctx.now, bookedAt: ctx.now, state: 'booked' };
+  fresh.history.push({ at: ctx.now, by, type: 'courier', text: `Courier: Steadfast ${fresh.courier.trackingId}`.trim() });
+  if (canTransition(fresh.status, 'shipped')) { fresh.status = 'shipped'; fresh.history.push({ at: ctx.now, by, type: 'status', text: 'Status: shipped' }); }
+  fresh.updatedAt = ctx.now;
+  t3.set('orders', fresh.id, fresh);
+  await t3.commit();
+  return fresh;
+}
+
+// The customer's past delivery record with the courier, shown before you send a risky cash-on-delivery parcel.
+export async function courierFraud(store, ctx, body, env) {
+  const { order } = await manageableOrder(store, ctx, body.id);
+  const phone = encodeURIComponent(order.customer.phone);
+  const j = await courierCall(ctx, env, `/fraud_check/${phone}`, { method: 'GET' });
+  return { parcels: Number(j.total_parcels) || 0, delivered: Number(j.total_delivered) || 0, cancelled: Number(j.total_cancelled) || 0, reports: Number(j.total_fraud_reports) || 0 };
+}
+
+// Steadfast calls this when a parcel changes state. The Worker checks the shared token (ctx.webhook) before this runs.
+// Only "delivered" moves the order; every other state is recorded and left for the shop owner to decide.
+export async function courierWebhook(store, ctx, body) {
+  if (!ctx.webhook) throw new AppError('forbidden', 'Not allowed', 403);
+  const invoice = str(body.invoice, 60), raw = str(body.status, 40);
+  if (!invoice || !raw) throw new AppError('bad_request', 'invoice and status are required');
+  const [hit] = await store.query('orders', [['no', '==', invoice]], 1);
+  if (!hit) return { ok: true, ignored: true };
+  const tx = await store.begin();
+  const order = await tx.get('orders', hit.id);
+  const c = order?.courier;
+  if (!c?.consignmentId || (body.consignment_id != null && String(body.consignment_id) !== c.consignmentId)) return { ok: true, ignored: true };
+  const stamp = Date.parse(body.updated_at) || 0;
+  if (c.status === raw || (stamp && c.statusAt && stamp < c.statusAt)) return { ok: true, duplicate: true };
+  order.courier = { ...c, status: raw, statusAt: stamp || ctx.now };
+  order.history.push({ at: ctx.now, by: 'courier', type: 'courier', text: `Courier status: ${raw}` });
+  if (raw === 'delivered' && canTransition(order.status, 'delivered')) {
+    order.status = 'delivered';
+    if (order.payMethod === 'cod' && order.due > 0) {
+      order.payments.push({ at: ctx.now, amount: order.due, method: 'cod', note: 'Collected on delivery (courier)', by: 'courier' });
+      order.paid = order.total;
+      order.due = 0;
+    }
+    order.history.push({ at: ctx.now, by: 'courier', type: 'status', text: 'Status: delivered' });
+  }
+  order.updatedAt = ctx.now;
+  tx.set('orders', order.id, order);
+  await tx.commit();
+  return { ok: true };
+}
+
+export const handlers = { previewCoupon, createOrder, trackOrder, customerCancel, adminUpdateOrder, claimInvite, bootstrap, removeStaff, subscribe, submitReview, adminReview, adminListOrders, bookCourier, courierFraud, courierWebhook };
 // Which handlers need a signed-in user, enforced by both runtimes before dispatch.
-export const NEEDS_AUTH = new Set(['adminUpdateOrder', 'claimInvite', 'bootstrap', 'removeStaff', 'adminReview', 'adminListOrders']);
+export const NEEDS_AUTH = new Set(['adminUpdateOrder', 'claimInvite', 'bootstrap', 'removeStaff', 'adminReview', 'adminListOrders', 'bookCourier', 'courierFraud']);

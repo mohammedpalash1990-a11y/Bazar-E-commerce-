@@ -52,6 +52,15 @@ function bindRows(el) {
 }
 
 const F = { q: '', status: '', pay: '', range: 'all' };
+
+// Steadfast booking: shows the saved tracking code once booked, otherwise the "send to courier" actions.
+function courierBox(o) {
+  const c = o.courier || {};
+  if (c.consignmentId) return `<p class="hint" style="margin:0 0 10px"><strong>${esc(c.name)}</strong> · ${esc(c.trackingId)}${c.status ? ` · ${esc(courierStatusLabel(c.status))}` : ''}</p>`;
+  if (!['confirmed', 'processing'].includes(o.status)) return '';
+  return `<div class="acts-row" style="margin-bottom:10px"><button class="btn sm" data-courier="book">${esc(t('Send to Steadfast'))}</button><button class="btn ghost sm" data-courier="fraud">${esc(t('Check delivery record'))}</button></div><p class="hint" id="cf-out" style="margin:0 0 10px" role="status"></p>`;
+}
+export const courierStatusLabel = (s) => t({ in_review: 'In review', pending: 'Pending', hold: 'On hold', delivered: 'Delivered', partial_delivered: 'Partly delivered', cancelled: 'Cancelled', unknown: 'Unknown' }[s] || s);
 export function renderOrders(el) {
   function draw() {
     const now = Date.now();
@@ -88,8 +97,8 @@ export function renderOrders(el) {
 }
 
 function exportCsv(list) {
-  const rows = [['Order', 'Date', 'Customer', 'Phone', 'District', 'Address', 'Status', 'Payment method', 'Subtotal', 'Discount', 'Delivery', 'Total', 'Paid', 'Due', 'Items']];
-  list.forEach((o) => rows.push([o.no, new Date(o.createdAt).toISOString(), o.customer.name, o.customer.phone, o.customer.district, o.customer.address, o.status, o.payMethod, o.subtotal, o.discount, o.delivery, o.total, o.paid, o.due, o.items.map((l) => `${l.name}${l.variantLabel ? ` (${l.variantLabel})` : ''} x${l.qty}`).join('; ')]));
+  const rows = [['Order', 'Date', 'Customer', 'Phone', 'District', 'Address', 'Status', 'Payment method', 'Subtotal', 'Discount', 'Delivery', 'Total', 'Paid', 'Due', 'Courier', 'Tracking', 'Items']];
+  list.forEach((o) => rows.push([o.no, new Date(o.createdAt).toISOString(), o.customer.name, o.customer.phone, o.customer.district, o.customer.address, o.status, o.payMethod, o.subtotal, o.discount, o.delivery, o.total, o.paid, o.due, o.courier?.name || '', o.courier?.trackingId || '', o.items.map((l) => `${l.name}${l.variantLabel ? ` (${l.variantLabel})` : ''} x${l.qty}`).join('; ')]));
   download(`orders-${new Date().toISOString().slice(0, 10)}.csv`, rows.map((r) => r.map(csvCell).join(',')).join('\n'));
 }
 
@@ -118,7 +127,7 @@ export function orderDialog(id) {
         ${o.payments?.length ? `<div class="hist">${o.payments.map((p) => `<div><time>${esc(dt(p.at))}</time><span>${money(p.amount)} · ${esc(p.method)} ${esc(p.note || '')}</span></div>`).join('')}</div>` : ''}</div></div>
       <div style="display:grid;gap:18px">
       <div class="cardx"><h3>${esc(t('Customer'))}</h3><dl class="kv"><dt>${esc(t('Name'))}</dt><dd>${esc(o.customer.name)}</dd><dt>${esc(t('Phone'))}</dt><dd><a href="tel:${esc(o.customer.phone)}">${esc(o.customer.phone)}</a> · <a href="https://wa.me/${esc(wa)}" target="_blank" rel="noopener">WhatsApp</a></dd><dt>${esc(t('District'))}</dt><dd>${esc(o.customer.district)}</dd><dt>${esc(t('Address'))}</dt><dd>${esc(o.customer.address)}</dd>${o.customer.note ? `<dt>${esc(t('Note'))}</dt><dd>${esc(o.customer.note)}</dd>` : ''}</dl></div>
-      <div class="cardx"><h3>${esc(t('Courier'))}</h3><form class="form" data-f="courier" style="gap:8px"><input class="input" name="name" placeholder="${esc(t('Courier name (Steadfast, Pathao…)'))}" value="${esc(o.courier?.name || '')}" maxlength="60"><input class="input" name="trackingId" placeholder="${esc(t('Tracking ID'))}" value="${esc(o.courier?.trackingId || '')}" maxlength="60"><button class="btn ghost sm">${esc(t('Save courier'))}</button></form></div>
+      <div class="cardx"><h3>${esc(t('Courier'))}</h3>${courierBox(o)}<form class="form" data-f="courier" style="gap:8px"><input class="input" name="name" placeholder="${esc(t('Courier name (Steadfast, Pathao…)'))}" value="${esc(o.courier?.name || '')}" maxlength="60"><input class="input" name="trackingId" placeholder="${esc(t('Tracking ID'))}" value="${esc(o.courier?.trackingId || '')}" maxlength="60"><button class="btn ghost sm">${esc(t('Save courier'))}</button></form></div>
       <div class="cardx"><h3>${esc(t('History'))}</h3><div class="hist">${[...o.history].reverse().map((h) => `<div><time>${esc(dt(h.at))}</time><span>${esc(h.text)} <span class="hint">· ${esc(h.by)}</span></span></div>`).join('')}</div>
         <form class="acts-row" data-f="note"><input class="input" style="flex:1;height:38px" name="text" placeholder="${esc(t('Add an internal note'))}" maxlength="300" required><button class="btn ghost sm">${esc(t('Add'))}</button></form></div></div></div></div>
     <div class="df">${nexts.filter((s) => s !== 'cancelled').map((s) => `<button class="btn" data-status="${s}">${esc(t('Mark as {s}', { s: t(STATUS[s][0]) }))}</button>`).join('')}${nexts.includes('cancelled') ? `<button class="btn danger" data-status="cancelled">${esc(t('Cancel order'))}</button>` : ''}</div>`;
@@ -132,6 +141,17 @@ export function orderDialog(id) {
     }
     const p = e.target.closest('[data-print]');
     if (p) { d.close(); printInvoice(o, p.dataset.print === 'th'); }
+    const cb = e.target.closest('[data-courier]');
+    if (cb && cb.dataset.courier === 'book') {
+      if (!confirm(t('Send this order to Steadfast now? It will be marked Shipped.'))) return;
+      return guard(cb, async () => { try { const r = await A.be.api('bookCourier', { id }); const i = A.orders.findIndex((x) => x.id === id); if (i >= 0) A.orders[i] = r; o = r; render(); toast(t('Sent to courier')); } catch (er) { toast(errMsg(er), 'err'); } });
+    }
+    if (cb && cb.dataset.courier === 'fraud') {
+      return guard(cb, async () => {
+        const out = d.el.querySelector('#cf-out');
+        try { const r = await A.be.api('courierFraud', { id }); out.textContent = t('Delivery record: {d} delivered, {c} cancelled, {p} parcels in total', { d: num(r.delivered), c: num(r.cancelled), p: num(r.parcels) }) + (r.reports ? ` · ${t('Fraud reports')}: ${num(r.reports)}` : ''); } catch (er) { out.textContent = errMsg(er); }
+      });
+    }
   });
   d.el.addEventListener('submit', (e) => {
     e.preventDefault();

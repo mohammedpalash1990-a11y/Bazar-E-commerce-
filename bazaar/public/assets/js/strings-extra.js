@@ -21,5 +21,11 @@ export const EXTRA = {
   'Review updated': 'রিভিউ আপডেট হয়েছে', 'Only the shop owner can approve reviews': 'শুধু দোকানের মালিক রিভিউ অনুমোদন করতে পারেন', 'Order {n}': 'অর্ডার {n}',
   'Search email': 'ইমেইল খুঁজুন', 'Reviews wait here until you approve them. Only approved reviews are shown in the shop.': 'রিভিউ এখানে অপেক্ষা করে, আপনি অনুমোদন দিলেই দোকানে দেখা যায়।',
   'Only customers with a delivered order can write a review.': 'শুধু ডেলিভারি পাওয়া ক্রেতারাই রিভিউ লিখতে পারেন।', 'Everyone who subscribed to your newsletter appears here.': 'আপনার নিউজলেটারে যারা সাবস্ক্রাইব করেছে তারা এখানে দেখা যাবে।',
+  'Send to Steadfast': 'Steadfast-এ পাঠান', 'Check delivery record': 'ডেলিভারি রেকর্ড দেখুন', 'Send this order to Steadfast now? It will be marked Shipped.': 'এই অর্ডার এখনই Steadfast-এ পাঠাবেন? এটি "শিপড" হয়ে যাবে।',
+  'Sent to courier': 'কুরিয়ারে পাঠানো হয়েছে', 'Delivery record: {d} delivered, {c} cancelled, {p} parcels in total': 'ডেলিভারি রেকর্ড: মোট {p}টি পার্সেল, {d}টি ডেলিভারি, {c}টি বাতিল', 'Fraud reports': 'প্রতারণার রিপোর্ট',
+  'In review': 'যাচাই চলছে', 'On hold': 'স্থগিত', 'Partly delivered': 'আংশিক ডেলিভারি', Unknown: 'অজানা',
+  'Courier booking is not set up yet': 'কুরিয়ার বুকিং এখনো চালু করা হয়নি', 'This order is already with the courier': 'এই অর্ডার আগেই কুরিয়ারে দেওয়া হয়েছে',
+  'Confirm the order before sending it to the courier': 'কুরিয়ারে পাঠানোর আগে অর্ডার নিশ্চিত করুন', 'Booking is already in progress. Wait a minute.': 'বুকিং চলছে, এক মিনিট অপেক্ষা করুন।',
+  'Could not reach the courier. Try again in a moment.': 'কুরিয়ারের সাথে যোগাযোগ করা যায়নি, একটু পরে আবার চেষ্টা করুন।', 'The courier refused this request': 'কুরিয়ার এই অনুরোধ নেয়নি', 'The courier did not return a tracking code': 'কুরিয়ার ট্র্যাকিং কোড দেয়নি',
   Rating: 'রেটিং', Review: 'রিভিউ', 'Could not load orders': 'অর্ডার লোড করা যায়নি',
 };

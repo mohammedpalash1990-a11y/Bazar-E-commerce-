@@ -17,6 +17,15 @@ function throttled(key, limit, windowMs) {
   return arr.length > limit;
 }
 
+// Constant-time string compare for the courier webhook token.
+function sameToken(a, b) {
+  const x = new TextEncoder().encode(String(a || '')), y = new TextEncoder().encode(String(b || ''));
+  if (!y.length || x.length !== y.length) return false;
+  let d = 0;
+  for (let i = 0; i < x.length; i++) d |= x[i] ^ y[i];
+  return d === 0;
+}
+
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 const fail = (e) => json({ ok: false, error: { code: e.code, message: e.message } }, e.status);
@@ -42,13 +51,15 @@ export async function onRequest({ request, env, params }) {
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw new AppError('bad_json', 'Invalid JSON');
 
     const store = new FirestoreStore(env);
-    const user = await authenticate(request, env, store);
+    // The courier calls the webhook with its own shared token, not a Firebase session.
+    const webhook = name === 'courierWebhook' && sameToken((request.headers.get('authorization') || '').replace(/^Bearer\s+/i, ''), env.STEADFAST_WEBHOOK_TOKEN);
+    const user = name === 'courierWebhook' ? null : await authenticate(request, env, store);
     if (NEEDS_AUTH.has(name) && !user) throw new AppError('auth_required', 'Sign in required', 401);
     if (CAPTCHA_ON.has(name)) await verifyTurnstile(env, body.turnstile, ip);
 
     for (let attempt = 0; ; attempt++) {
       try {
-        return json({ ok: true, data: await handler(store, { now: Date.now(), user }, body, env) });
+        return json({ ok: true, data: await handler(store, { now: Date.now(), user, webhook }, body, env) });
       } catch (e) {
         if (e?.code === 'tx_aborted' && attempt < 3) continue; // another order touched the same stock
         throw e;

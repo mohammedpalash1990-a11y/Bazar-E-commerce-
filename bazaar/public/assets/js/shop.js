@@ -530,11 +530,12 @@ function pageDone(no) {
 /* ---- tracking */
 const STEPS = ['pending', 'confirmed', 'processing', 'shipped', 'delivered'];
 const statusLabel = (s) => t({ pending: 'Pending', confirmed: 'Confirmed', processing: 'Processing', shipped: 'Shipped', delivered: 'Delivered', cancelled: 'Cancelled', returned: 'Returned' }[s] || s);
+const courierLabel = (s) => t({ in_review: 'In review', pending: 'Pending', hold: 'On hold', delivered: 'Delivered', partial_delivered: 'Partly delivered', cancelled: 'Cancelled', unknown: 'Unknown' }[s] || s);
 const statusKind = (s) => ({ pending: 'warn', confirmed: 'info', processing: 'info', shipped: 'info', delivered: 'ok', cancelled: 'danger', returned: 'danger' }[s] || '');
 function orderCard(o) {
   return `<div class="box" style="margin-top:20px"><div class="row" style="flex-wrap:wrap"><div><h2 style="margin:0">${esc(o.no)}</h2><span class="hint">${esc(fmtDate(o.createdAt, getLang()))}</span></div><span class="badge ${statusKind(o.status)}">${esc(statusLabel(o.status))}</span></div>
     <ul class="timeline" style="padding:0;margin:20px 0 6px">${(o.history || []).map((h) => `<li><i></i><div>${esc(h.text)}<div class="time">${esc(fmtDate(h.at, getLang()))}</div></div></li>`).join('')}</ul>
-    ${o.courier?.name ? `<p class="hint">${esc(t('Courier'))}: ${esc(o.courier.name)} ${esc(o.courier.trackingId)}</p>` : ''}
+    ${o.courier?.name ? `<p class="hint">${esc(t('Courier'))}: <strong>${esc(o.courier.name)}</strong> ${esc(o.courier.trackingId)}${o.courier.status ? ` · ${esc(courierLabel(o.courier.status))}` : ''}</p>` : ''}
     <div style="margin-top:12px">${o.items.map((l) => `<div class="sum-line"><div class="t">${img(l.image)}</div><div>${esc(pick(l, 'name'))}<div class="hint">${esc(l.variantLabel)} × ${fmtNum(l.qty, getLang())}</div></div><strong>${money(l.total)}</strong></div>`).join('')}</div>
     <div class="row tot" style="margin-top:10px"><span>${esc(t('Total'))}</span><span>${money(o.total)}</span></div>
     ${o.due > 0 && o.status !== 'cancelled' ? `<div class="row"><span>${esc(t('Due on delivery'))}</span><span>${money(o.due)}</span></div>` : ''}
@@ -571,7 +572,7 @@ async function runTrack(form) {
    connection returns. Skipped when a bot check is configured, because its token is single-use. */
 const TRACK_DONE = new Set(['delivered', 'cancelled', 'returned']);
 let trackPoll = null;
-const orderSig = (o) => `${o.status}|${(o.history || []).length}|${o.due}|${o.courier?.trackingId || ''}`;
+const orderSig = (o) => `${o.status}|${(o.history || []).length}|${o.due}|${o.courier?.trackingId || ''}|${o.courier?.status || ''}`;
 function stopTrackPoll() {
   if (!trackPoll) return;
   clearInterval(trackPoll.timer);
