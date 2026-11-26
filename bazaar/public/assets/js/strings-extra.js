@@ -27,5 +27,6 @@ export const EXTRA = {
   'Courier booking is not set up yet': 'কুরিয়ার বুকিং এখনো চালু করা হয়নি', 'This order is already with the courier': 'এই অর্ডার আগেই কুরিয়ারে দেওয়া হয়েছে',
   'Confirm the order before sending it to the courier': 'কুরিয়ারে পাঠানোর আগে অর্ডার নিশ্চিত করুন', 'Booking is already in progress. Wait a minute.': 'বুকিং চলছে, এক মিনিট অপেক্ষা করুন।',
   'Could not reach the courier. Try again in a moment.': 'কুরিয়ারের সাথে যোগাযোগ করা যায়নি, একটু পরে আবার চেষ্টা করুন।', 'The courier refused this request': 'কুরিয়ার এই অনুরোধ নেয়নি', 'The courier did not return a tracking code': 'কুরিয়ার ট্র্যাকিং কোড দেয়নি',
+  Share: 'শেয়ার', 'Link copied': 'লিংক কপি হয়েছে',
   Rating: 'রেটিং', Review: 'রিভিউ', 'Could not load orders': 'অর্ডার লোড করা যায়নি',
 };

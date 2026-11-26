@@ -118,3 +118,29 @@ test('image route serves a stored picture as a long-cached file and refuses hidd
   assert.equal((await get('img', 'missing')).status, 404);
   assert.equal((await get('img', 'a/b')).status, 404);
 });
+
+test('/p/<id> returns the storefront with that product in the HTML; unknown ids get 404 and noindex', async () => {
+  const { onRequestGet } = await import('../functions/p/[id].js');
+  const shell = '<html><head><title>Shop</title><meta name="description" content="x"></head><body></body></html>';
+  const e = { ...env, ASSETS: { fetch: async () => new Response(shell, { headers: { 'content-type': 'text/html' } }) } };
+  const get = (id) => onRequestGet({ request: new Request(`https://x.test/p/${id}`), env: e, params: { id } });
+  const ok = await get('p1');
+  assert.equal(ok.status, 200);
+  const html = await ok.text();
+  assert.match(html, /<title>Shirt \| Fake Shop<\/title>/);
+  assert.match(html, /"price":"1000"/);
+  const miss = await get('nope');
+  assert.equal(miss.status, 404);
+  assert.match(await miss.text(), /noindex/);
+  assert.equal((await get('bad!id')).status, 404);
+});
+
+test('sitemap and robots', async () => {
+  db['catalog/main'] = { shopId: 'main', prods: [{ id: 'p1' }, { id: 'pimg' }] };
+  const sm = await (await import('../functions/sitemap.xml.js')).onRequestGet({ request: new Request('https://x.test/sitemap.xml'), env });
+  const xml = await sm.text();
+  assert.match(xml, /https:\/\/x\.test\/p\/p1/);
+  assert.match(xml, /https:\/\/x\.test\/p\/pimg/);
+  const rb = (await import('../functions/robots.txt.js')).onRequestGet({ request: new Request('https://x.test/robots.txt') });
+  assert.match(await rb.text(), /Sitemap: https:\/\/x\.test\/sitemap\.xml/);
+});

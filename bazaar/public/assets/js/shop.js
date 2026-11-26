@@ -23,6 +23,8 @@ const pName = (p) => pick(p, 'name');
 const stockOf = (p) => (p.trackStock === false ? Infinity : Array.isArray(p.variants) && p.variants.length ? p.variants.reduce((s, v) => s + Math.max(0, Number(v.stock) || 0), 0) : Math.max(0, Number(p.stock) || 0));
 
 function shopIdFromUrl() {
+  const meta = document.querySelector('meta[name="bz-shop"]')?.content;
+  if (meta && /^[a-z0-9-]+$/i.test(meta)) return meta.toLowerCase();
   const m = location.pathname.match(/^\/s\/([a-z0-9-]+)/i);
   if (m) return m[1].toLowerCase();
   const q = new URLSearchParams(location.search).get('shop');
@@ -415,7 +417,8 @@ function pagePdp(id) {
       <div class="buy"><div class="qty"><button data-act="pq-" aria-label="−">−</button><span id="pq">${fmtNum(pdp.qty, getLang())}</span><button data-act="pq+" aria-label="+">+</button></div>
         <button class="btn" data-act="add" data-id="${esc(id)}" ${stock === 0 ? 'disabled' : ''}>${esc(needOpt ? t('Choose an option') : t('Add to cart'))}</button>
         <button class="btn gold" data-act="buy" data-id="${esc(id)}" ${stock === 0 ? 'disabled' : ''}>${esc(t('Buy now'))}</button>
-        <button class="ib wish ${S.wish.has(id) ? 'on' : ''}" style="${S.wish.has(id) ? 'color:var(--danger)' : ''}" data-act="wish" data-id="${esc(id)}" aria-label="${esc(t('Wishlist'))}">${ic('heart')}</button></div>
+        <button class="ib wish ${S.wish.has(id) ? 'on' : ''}" style="${S.wish.has(id) ? 'color:var(--danger)' : ''}" data-act="wish" data-id="${esc(id)}" aria-label="${esc(t('Wishlist'))}">${ic('heart')}</button>
+        <button class="ib" data-act="share" data-id="${esc(id)}" aria-label="${esc(t('Share'))}">${ic('share')}</button></div>
       <p class="prose">${esc(pick(p, 'description'))}</p>
       <div class="facts"><div>${ic('truck')}${esc(t('Delivery across Bangladesh'))}</div><div>${ic('shield')}${esc(t('Pay cash when your order arrives'))}</div></div>
     </div></div>
@@ -747,6 +750,14 @@ document.addEventListener('click', async (e) => {
     case 'q+': { const l = cartLines()[i]; if (l && l.qty + 1 > l.max) toast(t('Only {n} in stock', { n: fmtNum(l.max, getLang()) }), 'err'); else if (l) { S.cart[i].qty += 1; } saveCart(); updateBadges(); renderDrawer(); break; }
     case 'q-': if (S.cart[i]) { S.cart[i].qty -= 1; if (S.cart[i].qty < 1) S.cart.splice(i, 1); saveCart(); updateBadges(); renderDrawer(); if (location.hash.startsWith('#/checkout')) { CO.server = null; rerender(); } } break;
     case 'rm': S.cart.splice(i, 1); saveCart(); updateBadges(); renderDrawer(); if (location.hash.startsWith('#/checkout')) rerender(); break;
+    case 'share': {
+      e.preventDefault();
+      const link = `${location.origin}/p/${encodeURIComponent(a.dataset.id)}`;
+      const p = S.products.get(a.dataset.id);
+      if (navigator.share) { navigator.share({ title: p ? pName(p) : '', url: link }).catch(() => {}); break; }
+      (navigator.clipboard?.writeText(link) || Promise.reject()).then(() => toast(t('Link copied')), () => toast(link));
+      break;
+    }
     case 'wish': {
       e.preventDefault();
       const id = a.dataset.id;
@@ -837,7 +848,10 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.b
 
 /* ---------------------------------------------------------------- boot */
 async function boot() {
+  // A shared product link (/p/<id>) arrives with its search-engine markup; the app then opens that product.
+  const shared = location.pathname.match(/^\/p\/([A-Za-z0-9_-]{1,80})\/?$/);
   const shopId = shopIdFromUrl();
+  if (shared) history.replaceState(null, '', `/${location.search}#/p/${shared[1]}`);
   // A saved copy lets returning visitors see the shop immediately, before the Firebase code has even loaded.
   const snap = CONFIG.firebase.apiKey && shopId ? readSnap(shopId) : null;
   if (snap) { applyData(snap.shop, snap.cats, snap.prods); shell(); route(); } else document.body.innerHTML = BOOT_SKELETON;
