@@ -159,3 +159,11 @@ test('helpers', () => {
   const out = priceOrder({ items: [{ productId: 'a', qty: 1 }], products: { a: { shopId: 'm', name: 'A', price: 600, stock: 3 } }, shop, district: 'X' });
   assert.equal(out.delivery, 0);
 });
+
+import { productUnitPrice as _pup } from '../public/shared/core.js';
+test('sale price stops after saleEnds', () => {
+  const p = { price: 100, salePrice: 80, saleEnds: 1000 };
+  assert.equal(_pup(p, null, 999), 80);
+  assert.equal(_pup(p, null, 1000), 100);
+  assert.equal(_pup({ price: 100, salePrice: 80 }, null, 5e12), 80);
+});

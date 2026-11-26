@@ -31,4 +31,7 @@ export const EXTRA = {
   Rating: 'রেটিং', Review: 'রিভিউ', 'Could not load orders': 'অর্ডার লোড করা যায়নি',
   'Add {n} more for free delivery': 'ডেলিভারি ফ্রি পেতে আরও {n} যোগ করুন', 'You get free delivery!': 'আপনার ডেলিভারি ফ্রি!',
   'Recently viewed': 'সম্প্রতি দেখেছেন', 'Order again': 'আবার অর্ডার', 'These items are no longer available': 'এই পণ্যগুলো আর পাওয়া যাচ্ছে না',
+  Brand: 'ব্র্যান্ড', 'All brands': 'সব ব্র্যান্ড', 'Sale ends': 'অফার শেষ', 'Optional. The sale price stops at this time.': 'ঐচ্ছিক। এই সময়ের পর অফার দাম আর থাকবে না।',
+  'Sale ends in {t}': 'অফার শেষ হতে বাকি {t}', d: 'দিন', '{n} days in {d}': '{d}-এ {n} দিন', '{n} days elsewhere': 'অন্যত্র {n} দিন',
+  'Delivery time inside home district (days)': 'হোম জেলায় ডেলিভারি সময় (দিন)', 'Delivery time elsewhere (days)': 'অন্যত্র ডেলিভারি সময় (দিন)',
 };

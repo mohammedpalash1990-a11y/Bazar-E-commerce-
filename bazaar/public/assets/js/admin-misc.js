@@ -180,6 +180,8 @@ export async function renderSettings(el) {
       <div class="field"><label>${esc(t('Home district (cheaper delivery)'))}</label><input class="input" name="insideDistrict" value="${esc(dl.insideDistrict || '')}" maxlength="40"></div>
       <div class="field"><label>${esc(t('Delivery fee inside home district'))}</label><input class="input" name="insideFee" type="number" min="0" value="${dl.insideFee ?? 0}"></div>
       <div class="field"><label>${esc(t('Delivery fee elsewhere'))}</label><input class="input" name="outsideFee" type="number" min="0" value="${dl.outsideFee ?? 0}"></div>
+      <div class="field"><label>${esc(t('Delivery time inside home district (days)'))}</label><input class="input" name="etaInside" maxlength="12" placeholder="1-2" value="${esc(dl.etaInside || '')}"></div>
+      <div class="field"><label>${esc(t('Delivery time elsewhere (days)'))}</label><input class="input" name="etaOutside" maxlength="12" placeholder="3-5" value="${esc(dl.etaOutside || '')}"></div>
       <div class="field"><label>${esc(t('Free delivery above'))}</label><input class="input" name="freeAbove" type="number" min="0" value="${dl.freeAbove || ''}"><span class="hint">${esc(t('Empty = never free'))}</span></div>
       <div class="field"><label>bKash ${esc(t('number'))}</label><input class="input" name="bkash" value="${esc(pay.bkash || '')}" maxlength="20"><span class="hint">${esc(t('Leave empty to hide. Customers send money, then enter the transaction ID.'))}</span></div>
       <div class="field"><label>Nagad ${esc(t('number'))}</label><input class="input" name="nagad" value="${esc(pay.nagad || '')}" maxlength="20"></div>
@@ -204,7 +206,7 @@ export async function renderSettings(el) {
         name: fd.name.trim(), about: fd.about.trim(), announcement: fd.announcement.trim(), currency: fd.currency.trim() || '৳',
         brand: { logo, tagline: fd.tagline.trim(), primary: fd.primary, accent: fd.accent },
         contact: { phone: fd.phone.trim(), whatsapp: fd.whatsapp.trim(), email: fd.email.trim(), address: fd.address.trim() },
-        delivery: { insideDistrict: fd.insideDistrict.trim(), insideFee: Number(fd.insideFee) || 0, outsideFee: Number(fd.outsideFee) || 0, freeAbove: Number(fd.freeAbove) || 0 },
+        delivery: { insideDistrict: fd.insideDistrict.trim(), insideFee: Number(fd.insideFee) || 0, outsideFee: Number(fd.outsideFee) || 0, freeAbove: Number(fd.freeAbove) || 0, etaInside: String(fd.etaInside || '').trim().slice(0, 12), etaOutside: String(fd.etaOutside || '').trim().slice(0, 12) },
         pay: { bkash: fd.bkash.trim(), nagad: fd.nagad.trim() },
         notify: { telegramChatId: fd.telegramChatId.trim() },
       };

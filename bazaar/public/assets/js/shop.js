@@ -3,7 +3,7 @@ import { initBackend } from './backend.js';
 import { t, getLang, setLang, pick } from './i18n.js';
 import { ic } from './icons.js';
 import { $, $$, esc, safeUrl, fmtMoney, fmtDate, fmtNum, toast, debounce, uid } from './util.js';
-import { priceOrder, productUnitPrice, availableStock, deliveryFee, isShopOpen, normalizePhone, AppError } from '../../shared/core.js';
+import { priceOrder, productUnitPrice, saleActive, availableStock, deliveryFee, isShopOpen, normalizePhone, AppError } from '../../shared/core.js';
 
 const DISTRICTS = ['Dhaka', 'Gazipur', 'Narayanganj', 'Narsingdi', 'Manikganj', 'Munshiganj', 'Tangail', 'Faridpur', 'Kishoreganj', 'Rajbari', 'Madaripur', 'Shariatpur', 'Gopalganj', 'Chattogram', "Cox's Bazar", 'Cumilla', 'Feni', 'Noakhali', 'Lakshmipur', 'Chandpur', 'Brahmanbaria', 'Khagrachhari', 'Rangamati', 'Bandarban', 'Rajshahi', 'Bogura', 'Pabna', 'Sirajganj', 'Natore', 'Naogaon', 'Joypurhat', 'Chapainawabganj', 'Khulna', 'Jashore', 'Satkhira', 'Bagerhat', 'Kushtia', 'Chuadanga', 'Meherpur', 'Magura', 'Narail', 'Jhenaidah', 'Barishal', 'Bhola', 'Patuakhali', 'Pirojpur', 'Jhalokati', 'Barguna', 'Sylhet', 'Moulvibazar', 'Habiganj', 'Sunamganj', 'Rangpur', 'Dinajpur', 'Gaibandha', 'Kurigram', 'Lalmonirhat', 'Nilphamari', 'Thakurgaon', 'Panchagarh', 'Mymensingh', 'Jamalpur', 'Netrokona', 'Sherpur'];
 const PAGE = 24;
@@ -116,6 +116,25 @@ function topNotes() {
   if (n.length < 3) n.push(['check', t('Delivery across Bangladesh')]);
   return n.slice(0, 3);
 }
+function etaText() {
+  const d = S.shop?.delivery || {};
+  const parts = [];
+  if (d.etaInside) parts.push(t('{n} days in {d}', { n: d.etaInside, d: d.insideDistrict || '' }));
+  if (d.etaOutside) parts.push(t('{n} days elsewhere', { n: d.etaOutside }));
+  return parts.length ? `<small>${esc(parts.join(' · '))}</small>` : '';
+}
+const fmtLeft = (ms) => {
+  const s = Math.max(0, Math.floor(ms / 1000)), dd = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60), ss = s % 60;
+  const n = (x) => (getLang() === 'bn' ? String(x).replace(/\d/g, (c) => '০১২৩৪৫৬৭৮৯'[c]) : String(x));
+  return `${dd ? `${n(dd)}${t('d')} ` : ''}${n(String(h).padStart(2, '0'))}:${n(String(m).padStart(2, '0'))}:${n(String(ss).padStart(2, '0'))}`;
+};
+setInterval(() => {
+  document.querySelectorAll('.sale-timer[data-end]').forEach((el) => {
+    const left = Number(el.dataset.end) - Date.now();
+    if (left <= 0) { el.remove(); rerender(); return; }
+    el.textContent = t('Sale ends in {t}', { t: fmtLeft(left) });
+  });
+}, 1000);
 const isDeal = (p) => productUnitPrice(p, null) < Number(p.price);
 
 function shell() {
@@ -381,10 +400,13 @@ function setQuery(obj) {
 function pageShop() {
   const q = query();
   const cat = q.get('cat') || '', term = (q.get('q') || '').trim().toLowerCase(), sort = q.get('sort') || 'new';
+  const brand = q.get('brand') || '';
+  const brands = [...new Set([...S.products.values()].map((p) => (p.brand || '').trim()).filter(Boolean))].sort();
   const min = Number(q.get('min')) || 0, max = Number(q.get('max')) || 0, inStock = q.get('stock') === '1', dealsOnly = q.get('sale') === '1';
   let items = [...S.products.values()].filter((p) => {
     if (cat && p.category !== cat) return false;
     if (dealsOnly && !isDeal(p)) return false;
+    if (brand && (p.brand || '').trim() !== brand) return false;
     if (term && !`${p.name} ${p.nameBn || ''} ${p.sku || ''}`.toLowerCase().includes(term)) return false;
     const u = productUnitPrice(p, null);
     if (min && u < min) return false;
@@ -400,6 +422,7 @@ function pageShop() {
   return `<div class="sec-h" style="margin-top:32px"><h2>${esc(catName ? pick(catName, 'name') : dealsOnly ? t('Deals') : term ? t('Results for "{q}"', { q: term }) : t('All products'))}</h2><span class="hint">${esc(t('{n} products', { n: fmtNum(total, getLang()) }))}</span></div>
     <form class="toolbar" data-form="filters">
       <select class="input" name="sort" aria-label="${esc(t('Sort'))}"><option value="new" ${sort === 'new' ? 'selected' : ''}>${esc(t('Newest'))}</option><option value="pop" ${sort === 'pop' ? 'selected' : ''}>${esc(t('Most popular'))}</option><option value="low" ${sort === 'low' ? 'selected' : ''}>${esc(t('Price: low to high'))}</option><option value="high" ${sort === 'high' ? 'selected' : ''}>${esc(t('Price: high to low'))}</option></select>
+      ${brands.length ? `<select class="input" name="brand" aria-label="${esc(t('Brand'))}"><option value="">${esc(t('All brands'))}</option>${brands.map((b) => `<option value="${esc(b)}" ${b === brand ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select>` : ''}
       <input class="input" style="width:110px;min-width:0" type="number" min="0" name="min" placeholder="${esc(t('Min price'))}" value="${min || ''}" aria-label="${esc(t('Min price'))}">
       <input class="input" style="width:110px;min-width:0" type="number" min="0" name="max" placeholder="${esc(t('Max price'))}" value="${max || ''}" aria-label="${esc(t('Max price'))}">
       <label class="chip ${inStock ? 'on' : ''}" style="cursor:pointer"><input type="checkbox" name="stock" class="sr" ${inStock ? 'checked' : ''}>${esc(t('In stock only'))}</label>
@@ -436,6 +459,7 @@ function pagePdp(id) {
     <div class="info"><div class="crumbs"><a href="#/">${esc(t('Home'))}</a> / ${cat ? `<a href="#/shop?cat=${esc(cat.slug)}">${esc(pick(cat, 'name'))}</a>` : `<a href="#/shop">${esc(t('Shop'))}</a>`}</div>
       <h1>${esc(pName(p))}</h1>${starsHtml(p)}
       <div class="price lg"><span>${money(unit)}</span>${unit < (v && Number(v.price) > 0 ? Number(v.price) : Number(p.price)) ? `<s>${money(v && Number(v.price) > 0 ? v.price : p.price)}</s>` : ''}</div>
+      ${Number(p.saleEnds) > Date.now() && unit < Number(p.price) ? `<p class="sale-timer" data-end="${Number(p.saleEnds)}"></p>` : ''}
       ${stock === 0 ? `<p class="stock-out">${esc(t('Sold out'))}</p>` : stock <= 5 && stock !== Infinity ? `<p class="stock-low">${esc(t('Only {n} left', { n: fmtNum(stock, getLang()) }))}</p>` : `<p class="hint">${esc(t('In stock'))}</p>`}
       ${opts}
       <div class="buy"><div class="qty"><button data-act="pq-" aria-label="−">−</button><span id="pq">${fmtNum(pdp.qty, getLang())}</span><button data-act="pq+" aria-label="+">+</button></div>
@@ -444,7 +468,7 @@ function pagePdp(id) {
         <button class="ib wish ${S.wish.has(id) ? 'on' : ''}" style="${S.wish.has(id) ? 'color:var(--danger)' : ''}" data-act="wish" data-id="${esc(id)}" aria-label="${esc(t('Wishlist'))}">${ic('heart')}</button>
         <button class="ib" data-act="share" data-id="${esc(id)}" aria-label="${esc(t('Share'))}">${ic('share')}</button></div>
       <p class="prose">${esc(pick(p, 'description'))}</p>
-      <div class="facts"><div>${ic('truck')}${esc(t('Delivery across Bangladesh'))}</div><div>${ic('shield')}${esc(t('Pay cash when your order arrives'))}</div></div>
+      <div class="facts"><div>${ic('truck')}${esc(t('Delivery across Bangladesh'))}${etaText()}</div><div>${ic('shield')}${esc(t('Pay cash when your order arrives'))}</div></div>
     </div></div>
     <div class="stickybuy"><div><strong>${money(unit)}</strong></div><button class="btn" data-act="add" data-id="${esc(id)}" ${stock === 0 ? 'disabled' : ''}>${esc(needOpt ? t('Choose an option') : t('Add to cart'))}</button></div>
     <section class="sec" id="pdp-revs" hidden></section>
@@ -832,7 +856,7 @@ document.addEventListener('click', async (e) => {
 });
 document.addEventListener('change', (e) => {
   const f = e.target.closest('[data-form=filters]');
-  if (f) { const fd = new FormData(f); setQuery({ sort: fd.get('sort') === 'new' ? '' : fd.get('sort'), min: fd.get('min'), max: fd.get('max'), stock: fd.get('stock') ? '1' : '' }); return; }
+  if (f) { const fd = new FormData(f); setQuery({ sort: fd.get('sort') === 'new' ? '' : fd.get('sort'), min: fd.get('min'), max: fd.get('max'), brand: fd.get('brand') || '', stock: fd.get('stock') ? '1' : '' }); return; }
   if (e.target.name === 'pay') { $('#trx').hidden = e.target.value === 'cod'; }
   if (e.target.id === 'f-dist' && $('#sum')) { if (CO.server) applyCouponRefresh(); else $('#sum').innerHTML = summaryHtml(e.target.value); }
 });

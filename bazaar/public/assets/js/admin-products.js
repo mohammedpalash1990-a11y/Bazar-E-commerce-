@@ -62,9 +62,11 @@ function productDialog(p, done) {
       <div class="field"><label>${esc(t('Name'))} (EN) *</label><input class="input" name="name" value="${esc(cur.name)}" maxlength="140" required></div>
       <div class="field"><label>${esc(t('Name'))} (বাংলা)</label><input class="input" name="nameBn" value="${esc(cur.nameBn || '')}" maxlength="140"></div>
       <div class="field"><label>${esc(t('Category'))}</label><select class="input" name="category"><option value="">—</option>${cats.map((c) => `<option value="${esc(c.slug)}" ${cur.category === c.slug ? 'selected' : ''}>${esc(pick(c, 'name'))}</option>`).join('')}</select></div>
+      <div class="field"><label>${esc(t('Brand'))}</label><input class="input" name="brand" value="${esc(cur.brand || '')}" maxlength="60"></div>
       <div class="field"><label>SKU</label><input class="input" name="sku" value="${esc(cur.sku || '')}" maxlength="40"></div>
       <div class="field"><label>${esc(t('Price'))} *</label><input class="input" name="price" type="number" min="0" step="any" value="${esc(cur.price)}" required></div>
       <div class="field"><label>${esc(t('Sale price'))}</label><input class="input" name="salePrice" type="number" min="0" step="any" value="${cur.salePrice || ''}"><span class="hint">${esc(t('Leave empty for no sale'))}</span></div>
+      <div class="field"><label>${esc(t('Sale ends'))}</label><input class="input" name="saleEnds" type="datetime-local" value="${cur.saleEnds ? new Date(cur.saleEnds - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}"><span class="hint">${esc(t('Optional. The sale price stops at this time.'))}</span></div>
       <div class="field"><label>${esc(t('Stock'))}</label><input class="input" name="stock" type="number" min="0" value="${cur.stock ?? 0}" ${cur.variants.length ? 'disabled' : ''}><span class="hint">${esc(cur.variants.length ? t('Stock is set per variant below') : '')}</span></div>
       <div class="field" style="align-content:center;gap:12px"><label class="switch"><input type="checkbox" name="trackStock" ${cur.trackStock !== false ? 'checked' : ''}>${esc(t('Track stock'))}</label><label class="switch"><input type="checkbox" name="active" ${cur.active !== false ? 'checked' : ''}>${esc(t('Visible in shop'))}</label><label class="switch"><input type="checkbox" name="featured" ${cur.featured ? 'checked' : ''}>${esc(t('Featured on home page'))}</label></div>
       <div class="field full"><label>${esc(t('Photos'))} (${esc(t('up to 5'))})</label><div class="imgs">${cur.images.map((s, i) => `<div class="im"><img src="${esc(safeUrl(s))}" alt=""><button type="button" data-rmimg="${i}" aria-label="${esc(t('Remove'))}">×</button></div>`).join('')}${cur.images.length < 5 ? `<label class="add" title="${esc(t('Add photo'))}">${ic('plus')}<input type="file" accept="image/*" multiple hidden id="imgin"></label>` : ''}</div></div>
@@ -79,8 +81,9 @@ function productDialog(p, done) {
   };
   const readForm = () => {
     const f = d.el.querySelector('#pform'), fd = new FormData(f);
-    for (const k of ['name', 'nameBn', 'category', 'sku', 'description', 'descriptionBn']) cur[k] = String(fd.get(k) ?? '').trim();
+    for (const k of ['name', 'nameBn', 'category', 'brand', 'sku', 'description', 'descriptionBn']) cur[k] = String(fd.get(k) ?? '').trim();
     cur.price = Number(fd.get('price')); cur.salePrice = Number(fd.get('salePrice')) || 0;
+    cur.saleEnds = fd.get('saleEnds') ? new Date(String(fd.get('saleEnds'))).getTime() || 0 : 0;
     if (!cur.variants.length) cur.stock = Math.max(0, Math.floor(Number(fd.get('stock')) || 0));
     cur.trackStock = fd.get('trackStock') === 'on'; cur.active = fd.get('active') === 'on'; cur.featured = fd.get('featured') === 'on';
     cur.variants.forEach((v, i) => {

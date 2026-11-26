@@ -68,11 +68,14 @@ export function validateCustomer(c) {
   return out;
 }
 
-export function productUnitPrice(product, variant) {
+export const saleActive = (product, now = Date.now()) => !(Number(product.saleEnds) > 0 && now >= Number(product.saleEnds));
+
+export function productUnitPrice(product, variant, now = Date.now()) {
   const vPrice = Number(variant?.price) || 0;
   const base = vPrice > 0 ? vPrice : Number(product.price) || 0;
   // A variant with its own price only uses its own sale price, never the product's.
-  const sale = Number(variant?.salePrice) > 0 ? Number(variant.salePrice) : vPrice > 0 ? 0 : Number(product.salePrice) || 0;
+  const raw = Number(variant?.salePrice) > 0 ? Number(variant.salePrice) : vPrice > 0 ? 0 : Number(product.salePrice) || 0;
+  const sale = saleActive(product, now) ? raw : 0;
   return money(sale > 0 && sale < base ? sale : base);
 }
 
@@ -126,7 +129,7 @@ export function priceOrder({ items, products, shop, coupon, district, now = Date
     }
     const stock = availableStock(p, variant);
     if (qty > stock) throw new AppError('out_of_stock', `Only ${stock} left of ${p.name}`, 409);
-    const unit = productUnitPrice(p, variant);
+    const unit = productUnitPrice(p, variant, now);
     lines.push({
       productId, variantId: variant ? variant.id : '', name: p.name, nameBn: p.nameBn || '',
       variantLabel: variant ? variant.label : '', image: (p.images && p.images[0]) || '',
