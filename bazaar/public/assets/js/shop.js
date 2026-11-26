@@ -131,7 +131,7 @@ function shell() {
       <div class="wrap top">
         <a class="logo" href="#/" aria-label="${esc(shopName())}">${logo}</a>
         <form class="search" role="search" data-form="search">
-          <input type="search" name="q" placeholder="${esc(t('Search products'))}" aria-label="${esc(t('Search products'))}" autocomplete="off"><button type="submit" aria-label="${esc(t('Search products'))}">${ic('search')}</button>
+          <input type="search" name="q" placeholder="${esc(t('Search products'))}" aria-label="${esc(t('Search products'))}" autocomplete="off"><button type="submit" aria-label="${esc(t('Search products'))}">${ic('search')}</button><div class="sug" id="sug" role="listbox" hidden></div>
         </form>
         <nav class="acts" aria-label="${esc(t('Main'))}">
           ${multiBack}
@@ -184,6 +184,23 @@ function updateBadges() {
   if (cn) { cn.textContent = cartCount(); cn.hidden = !cartCount(); }
   if (wn) { wn.textContent = S.wish.size; wn.hidden = !S.wish.size; }
 }
+
+/* ---------------------------------------------------------------- recently viewed + suggestions */
+const rvKey = () => `bz_rv_${S.shop?.id}`;
+const rvPush = (id) => ls.set(rvKey(), [id, ...ls.get(rvKey(), []).filter((x) => x !== id)].slice(0, 12));
+function rvHtml(exclude) {
+  const list = ls.get(rvKey(), []).filter((id) => id !== exclude).map((id) => S.products.get(id)).filter(Boolean).slice(0, 4);
+  return list.length ? `<section class="sec"><div class="sec-h"><h2>${esc(t('Recently viewed'))}</h2></div><div class="grid">${list.map(card).join('')}</div></section>` : '';
+}
+function showSuggest(input) {
+  const box = $('#sug');
+  if (!box) return;
+  const term = input.value.trim().toLowerCase();
+  const hits = term.length < 2 ? [] : [...S.products.values()].filter((p) => `${p.name} ${p.nameBn || ''}`.toLowerCase().includes(term)).slice(0, 6);
+  box.hidden = !hits.length;
+  box.innerHTML = hits.map((p) => `<a href="#/p/${esc(p.id)}" role="option"><span class="th">${img(thumbOf(p), '')}</span><span class="nm">${esc(pName(p))}</span><b>${money(productUnitPrice(p, null))}</b></a>`).join('');
+}
+const hideSuggest = () => { const b = $('#sug'); if (b) b.hidden = true; };
 
 /* ---------------------------------------------------------------- cart */
 function cartLines() {
@@ -348,7 +365,7 @@ function pageHome() {
   return `${heroHtml(all, feat, sale)}${catCircles}${rail}${promos}
     <section class="sec"><div class="sec-h"><h2>${esc(t('New arrivals'))}</h2><a href="#/shop?sort=new">${esc(t('See all'))}</a></div>
       ${fresh.length ? `<div class="grid">${fresh.map(card).join('')}</div>` : `<div class="empty"><p>${esc(t('No products yet. Add some from the admin panel.'))}</p></div>`}</section>
-    ${reviewsHtml()}${newsHtml()}${trust}`;
+    ${rvHtml('')}${reviewsHtml()}${newsHtml()}${trust}`;
 }
 
 function query() {
@@ -431,7 +448,7 @@ function pagePdp(id) {
     </div></div>
     <div class="stickybuy"><div><strong>${money(unit)}</strong></div><button class="btn" data-act="add" data-id="${esc(id)}" ${stock === 0 ? 'disabled' : ''}>${esc(needOpt ? t('Choose an option') : t('Add to cart'))}</button></div>
     <section class="sec" id="pdp-revs" hidden></section>
-    ${related.length ? `<section class="sec"><div class="sec-h"><h2>${esc(t('You may also like'))}</h2></div><div class="grid">${related.map(card).join('')}</div></section>` : ''}`;
+    ${related.length ? `<section class="sec"><div class="sec-h"><h2>${esc(t('You may also like'))}</h2></div><div class="grid">${related.map(card).join('')}</div></section>` : ''}${rvHtml(id)}`;
 }
 
 /* ---- checkout */
@@ -650,12 +667,14 @@ function pageAccount() {
       <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">${staff ? `<a class="btn gold sm" href="/admin/">${esc(t('Open admin'))}</a>` : ''}<button class="btn ghost sm" data-act="logout">${esc(t('Sign out'))}</button></div></div>
     <div class="box"><h2>${esc(t('My orders'))}</h2><div id="my-orders"><div class="skel" style="height:80px"></div></div></div></div>`;
 }
+let myOrders = [];
 async function loadMyOrders() {
   const box = $('#my-orders');
   if (!box || !S.user) return;
   try {
     const list = (await S.be.db.list('orders', { where: [['uid', '==', S.user.uid]] })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 30);
-    box.innerHTML = list.length ? list.filter((o) => o.shopId === S.shop.id).map((o) => `<div class="ord"><div><strong>${esc(o.no)}</strong><div class="hint">${esc(fmtDate(o.createdAt, getLang()))}</div></div><span class="badge ${statusKind(o.status)}">${esc(statusLabel(o.status))}</span><strong>${money(o.total)}</strong><a class="btn ghost sm" href="#/track?no=${encodeURIComponent(o.no)}&phone=${encodeURIComponent(o.customer?.phone || '')}">${esc(t('Track'))}</a></div>`).join('') || `<p class="hint">${esc(t('No orders yet.'))}</p>` : `<p class="hint">${esc(t('No orders yet.'))}</p>`;
+    myOrders = list;
+    box.innerHTML = list.length ? list.filter((o) => o.shopId === S.shop.id).map((o) => `<div class="ord"><div><strong>${esc(o.no)}</strong><div class="hint">${esc(fmtDate(o.createdAt, getLang()))}</div></div><span class="badge ${statusKind(o.status)}">${esc(statusLabel(o.status))}</span><strong>${money(o.total)}</strong><a class="btn ghost sm" href="#/track?no=${encodeURIComponent(o.no)}&phone=${encodeURIComponent(o.customer?.phone || '')}">${esc(t('Track'))}</a><button class="btn ghost sm" data-act="reorder" data-no="${esc(o.no)}">${esc(t('Order again'))}</button></div>`).join('') || `<p class="hint">${esc(t('No orders yet.'))}</p>` : `<p class="hint">${esc(t('No orders yet.'))}</p>`;
   } catch { box.innerHTML = `<p class="hint">${esc(t('No orders yet.'))}</p>`; }
 }
 
@@ -723,7 +742,7 @@ async function route() {
   renderCatbar();
   if (seg[0] === 'checkout') { mountTurnstile(); }
   if (seg[0] === undefined) { initHero(); loadHomeReviews(); }
-  if (seg[0] === 'p') { const pid = decodeURIComponent(seg[1] || ''); ensureFull(pid); loadProductReviews(pid); }
+  if (seg[0] === 'p') { const pid = decodeURIComponent(seg[1] || ''); if (S.products.has(pid)) rvPush(pid); ensureFull(pid); loadProductReviews(pid); }
   if (seg[0] === 'track') { mountTurnstile(); const f = $('[data-form=track]'); if (S.be && (query().get('no') || '') && query().get('phone')) runTrack(f); }
   if (seg[0] === 'account' && S.be) loadMyOrders();
   if (!pdpKeep) window.scrollTo({ top: 0 });
@@ -787,6 +806,17 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'more': S.shown += PAGE; rerender(); break;
+    case 'reorder': {
+      const o = myOrders.find((x) => x.no === a.dataset.no);
+      let added = 0;
+      for (const it of o?.items || []) {
+        const p = S.products.get(it.productId);
+        if (!p || (it.variantId && !(p.variants || []).some((v) => v.id === it.variantId))) continue;
+        if (addToCart(it.productId, it.variantId || '', it.qty)) added++;
+      }
+      if (added) { document.body.classList.add('cart-open'); } else toast(t('These items are no longer available'), 'err');
+      break;
+    }
     case 'clear-q': setQuery({ q: '' }); break;
     case 'coupon': applyCoupon(); break;
     case 'atab': acctTab = a.dataset.tab; rerender(); break;
@@ -851,8 +881,10 @@ document.addEventListener('submit', async (e) => {
     try { await S.be.db.update('users', S.user.uid, { name: fd.name.slice(0, 80), phone: normalizePhone(fd.phone), address: fd.address.slice(0, 300), district: fd.district.slice(0, 60) }); await S.be.auth.refresh(); toast(t('Saved')); } catch (er) { toast(er.message, 'err'); }
   }
 });
-window.addEventListener('hashchange', () => { document.body.classList.remove('cart-open', 'catmenu-open'); if (!location.hash.startsWith('#/track')) stopTrackPoll(); route(); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.body.classList.remove('cart-open', 'catmenu-open'); });
+window.addEventListener('hashchange', () => { hideSuggest(); document.body.classList.remove('cart-open', 'catmenu-open'); if (!location.hash.startsWith('#/track')) stopTrackPoll(); route(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { document.body.classList.remove('cart-open', 'catmenu-open'); hideSuggest(); } });
+document.addEventListener('input', (e) => { if (e.target.matches?.('.search input')) showSuggest(e.target); });
+document.addEventListener('click', (e) => { if (!e.target.closest?.('.search')) hideSuggest(); });
 
 /* ---------------------------------------------------------------- boot */
 async function boot() {

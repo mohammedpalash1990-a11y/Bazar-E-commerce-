@@ -30,4 +30,5 @@ export const EXTRA = {
   Share: 'শেয়ার', 'Link copied': 'লিংক কপি হয়েছে',
   Rating: 'রেটিং', Review: 'রিভিউ', 'Could not load orders': 'অর্ডার লোড করা যায়নি',
   'Add {n} more for free delivery': 'ডেলিভারি ফ্রি পেতে আরও {n} যোগ করুন', 'You get free delivery!': 'আপনার ডেলিভারি ফ্রি!',
+  'Recently viewed': 'সম্প্রতি দেখেছেন', 'Order again': 'আবার অর্ডার', 'These items are no longer available': 'এই পণ্যগুলো আর পাওয়া যাচ্ছে না',
 };
