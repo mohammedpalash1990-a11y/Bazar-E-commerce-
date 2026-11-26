@@ -29,4 +29,5 @@ export const EXTRA = {
   'Could not reach the courier. Try again in a moment.': 'কুরিয়ারের সাথে যোগাযোগ করা যায়নি, একটু পরে আবার চেষ্টা করুন।', 'The courier refused this request': 'কুরিয়ার এই অনুরোধ নেয়নি', 'The courier did not return a tracking code': 'কুরিয়ার ট্র্যাকিং কোড দেয়নি',
   Share: 'শেয়ার', 'Link copied': 'লিংক কপি হয়েছে',
   Rating: 'রেটিং', Review: 'রিভিউ', 'Could not load orders': 'অর্ডার লোড করা যায়নি',
+  'Add {n} more for free delivery': 'ডেলিভারি ফ্রি পেতে আরও {n} যোগ করুন', 'You get free delivery!': 'আপনার ডেলিভারি ফ্রি!',
 };

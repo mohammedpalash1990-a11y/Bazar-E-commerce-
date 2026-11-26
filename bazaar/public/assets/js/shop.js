@@ -207,6 +207,13 @@ function addToCart(productId, variantId, qty) {
   return true;
 }
 
+function shipBar(sub) {
+  const fa = Number(S.shop?.delivery?.freeAbove) || 0;
+  if (fa <= 0) return '';
+  const left = fa - sub;
+  return `<div class="ship"><p>${esc(left > 0 ? t('Add {n} more for free delivery', { n: money(left) }) : t('You get free delivery!'))}</p><div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="${fa}" aria-valuenow="${Math.min(sub, fa)}"><i style="width:${Math.min(100, Math.round(sub / fa * 100))}%"></i></div></div>`;
+}
+
 function renderDrawer() {
   const d = $('#drawer');
   if (!d) return;
@@ -219,7 +226,7 @@ function renderDrawer() {
           <div class="qty"><button data-act="q-" data-i="${i}" aria-label="−">−</button><span>${fmtNum(l.qty, getLang())}</span><button data-act="q+" data-i="${i}" aria-label="+">+</button></div>
           <button class="rm" data-act="rm" data-i="${i}">${esc(t('Remove'))}</button></div>
         <strong>${money(l.unit * l.qty)}</strong></div>`).join('') : `<div class="empty"><p>${esc(t('Your cart is empty'))}</p><a class="btn" href="#/shop" data-act="cart-close">${esc(t('Start shopping'))}</a></div>`}</div>
-    ${lines.length ? `<footer><div class="row tot"><span>${esc(t('Subtotal'))}</span><span>${money(sub)}</span></div><p class="hint">${esc(t('Delivery and coupons are calculated at checkout'))}</p><a class="btn gold block" href="#/checkout" data-act="cart-close">${esc(t('Checkout'))}</a></footer>` : ''}`;
+    ${lines.length ? `<footer>${shipBar(sub)}<div class="row tot"><span>${esc(t('Subtotal'))}</span><span>${money(sub)}</span></div><p class="hint">${esc(t('Delivery and coupons are calculated at checkout'))}</p><a class="btn gold block" href="#/checkout" data-act="cart-close">${esc(t('Checkout'))}</a></footer>` : ''}`;
 }
 
 /* ---------------------------------------------------------------- cards */
@@ -422,6 +429,7 @@ function pagePdp(id) {
       <p class="prose">${esc(pick(p, 'description'))}</p>
       <div class="facts"><div>${ic('truck')}${esc(t('Delivery across Bangladesh'))}</div><div>${ic('shield')}${esc(t('Pay cash when your order arrives'))}</div></div>
     </div></div>
+    <div class="stickybuy"><div><strong>${money(unit)}</strong></div><button class="btn" data-act="add" data-id="${esc(id)}" ${stock === 0 ? 'disabled' : ''}>${esc(needOpt ? t('Choose an option') : t('Add to cart'))}</button></div>
     <section class="sec" id="pdp-revs" hidden></section>
     ${related.length ? `<section class="sec"><div class="sec-h"><h2>${esc(t('You may also like'))}</h2></div><div class="grid">${related.map(card).join('')}</div></section>` : ''}`;
 }
