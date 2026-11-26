@@ -495,13 +495,23 @@ function summaryHtml(district) {
     <div class="row"><span>${esc(t('Delivery'))}</span><span>${tot.delivery ? money(tot.delivery) : esc(t('Free'))}</span></div>
     <div class="row tot" style="margin-top:8px;padding-top:12px;border-top:1px solid var(--line)"><span>${esc(t('Total'))}</span><span>${money(tot.total)}</span></div>`;
 }
+// Addresses used before are kept on this device only, so a returning customer can fill the form in one tap.
+const addrBook = () => ls.get('bz_addrs', []);
+function rememberAddress(c) {
+  const a = { name: c.name, phone: normalizePhone(c.phone), address: c.address, district: c.district };
+  ls.set('bz_addrs', [a, ...addrBook().filter((x) => !(x.phone === a.phone && x.address === a.address))].slice(0, 4));
+}
+function addrChips() {
+  const list = addrBook();
+  return list.length ? `<div class="field"><span class="lbl">${esc(t('Saved addresses'))}</span><div class="chips">${list.map((a, i) => `<button type="button" class="chip" data-act="useaddr" data-i="${i}">${esc(a.name)} · ${esc(a.address.slice(0, 28))}</button>`).join('')}</div></div>` : '';
+}
 function pageCheckout() {
   setTitle(t('Checkout'));
   if (!S.cart.length) return `<div class="center"><h1>${esc(t('Your cart is empty'))}</h1><a class="btn" href="#/shop">${esc(t('Start shopping'))}</a></div>`;
   const u = S.user || {};
   const pay = S.shop.pay || {};
   return `<form class="co" data-form="checkout" novalidate>
-    <div class="box"><h2>${esc(t('Delivery details'))}</h2><div class="form">
+    <div class="box"><h2>${esc(t('Delivery details'))}</h2><div class="form">${addrChips()}
       <div class="two"><div class="field"><label for="f-name">${esc(t('Full name'))}</label><input class="input" id="f-name" name="name" autocomplete="name" required value="${esc(u.name || '')}"></div>
         <div class="field"><label for="f-phone">${esc(t('Mobile number'))}</label><input class="input" id="f-phone" name="phone" inputmode="tel" autocomplete="tel" placeholder="01XXXXXXXXX" required value="${esc(u.phone || '')}"></div></div>
       <div class="field"><label for="f-addr">${esc(t('Full address'))}</label><textarea class="input" id="f-addr" name="address" autocomplete="street-address" required placeholder="${esc(t('House, road, area'))}">${esc(u.address || '')}</textarea></div>
@@ -562,6 +572,7 @@ async function submitCheckout(form) {
     });
     sessionStorage.removeItem('bz_idem');
     ls.set('bz_last', { no: r.no, phone: normalizePhone(fd.phone) });
+    rememberAddress(fd);
     S.cart = []; saveCart(); updateBadges(); renderDrawer();
     CO = { code: '', server: null, pay: 'cod' };
     refreshData();
@@ -830,6 +841,11 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'more': S.shown += PAGE; rerender(); break;
+    case 'useaddr': {
+      const x = addrBook()[i];
+      if (x) { $('#f-name').value = x.name; $('#f-phone').value = x.phone; $('#f-addr').value = x.address; $('#f-dist').value = x.district; if (CO.server) applyCouponRefresh(); else $('#sum').innerHTML = summaryHtml(x.district); }
+      break;
+    }
     case 'reorder': {
       const o = myOrders.find((x) => x.no === a.dataset.no);
       let added = 0;

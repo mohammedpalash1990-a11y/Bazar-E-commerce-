@@ -36,4 +36,5 @@ export const EXTRA = {
   'Delivery time inside home district (days)': 'হোম জেলায় ডেলিভারি সময় (দিন)', 'Delivery time elsewhere (days)': 'অন্যত্র ডেলিভারি সময় (দিন)',
   'Message customer': 'কাস্টমারকে বার্তা', 'Order confirmed': 'অর্ডার নিশ্চিত', 'Order shipped': 'অর্ডার পাঠানো হয়েছে', 'Order delivered': 'অর্ডার পৌঁছেছে',
   'Opens WhatsApp or your SMS app with the message ready. You press send.': 'WhatsApp বা SMS অ্যাপে বার্তা তৈরি হয়ে খুলবে। পাঠানোর বোতাম আপনি চাপবেন।',
+  'Saved addresses': 'সংরক্ষিত ঠিকানা',
 };
